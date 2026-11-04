@@ -257,3 +257,11 @@ Only one toggle can be pending; repeated presses while it is running are ignored
 A command is never retried automatically, to avoid accidentally toggling twice.
 The device refreshes metadata after a successful command. A short Back press
 cancels queued commands and polling; an already-sent command may still complete.
+
+## Next track
+
+A short press of the encoder's **OK** button requests the next Spotify track via
+`POST /playback/next` and Windows `TrySkipNextAsync`. Turning the wheel or holding
+OK does not skip tracks. Next and play/pause share one pending command slot;
+presses during an active command are ignored and failed skips are not retried.
+The Windows media reader picks up the new title and cover on its next update.

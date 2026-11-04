@@ -137,3 +137,19 @@ test('offline and unconfigured apps do not send commands; failed toggles are not
  const failed=launch({failControl:true}); await flush(); failed.input({key:'start',action:'short'}); await flush();
  assert.equal(failed.commands.length,1); await failed.tick(); assert.equal(failed.commands.length,1);
 });
+
+test('OK short skips once; wheel rotation and held OK do not skip', async () => {
+ const app = launch(); await flush();
+ app.input({key:'ok',action:'press'}); app.input({key:'ok',action:'long'}); app.input({key:'encoder',action:'clockwise',delta:1}); await flush();
+ assert.equal(app.commands.length,0);
+ app.input({key:'ok',action:'short'}); await flush();
+ assert.equal(app.commands.length,1); assert.equal(app.commands[0].url,'http://192.168.1.10:8765/playback/next');
+});
+
+test('next track shares command serialization and is never retried after failure', async () => {
+ let finish; const pendingControl = new Promise(resolve => finish = resolve);
+ const app=launch({pendingControl}); await flush(); app.input({key:'ok',action:'short'}); await flush();
+ app.input({key:'ok',action:'short'}); app.input({key:'start',action:'short'}); await flush();
+ assert.equal(app.commands.length,1);
+ finish({ok:false}); await flush(); await app.tick(); assert.equal(app.commands.length,1);
+});

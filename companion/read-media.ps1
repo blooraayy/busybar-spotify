@@ -1,4 +1,4 @@
-param([switch]$Once, [switch]$ListSessions, [switch]$TogglePlayPause)
+param([switch]$Once, [switch]$ListSessions, [switch]$TogglePlayPause, [switch]$SkipNext)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -15,7 +15,7 @@ function Wait-WinRT($Operation, $ResultType) {
     return $task.Result
 }
 # The native adapter projects WinRT streams into .NET's image decoder.
-if (-not $TogglePlayPause) {
+if (-not ($TogglePlayPause -or $SkipNext)) {
     Add-Type -Path (Join-Path $PSScriptRoot 'thumbnail.cs') -ReferencedAssemblies System.Drawing
 }
 function Read-Cover($Thumbnail) {
@@ -44,6 +44,13 @@ do {
         $sessions = @($manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match 'Spotify' })
         $session = $sessions | Where-Object { $_.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing' } | Select-Object -First 1
         if (-not $session) { $session = $sessions | Select-Object -First 1 }
+        if ($SkipNext) {
+            if (-not $session) { throw 'No Spotify media session' }
+            $accepted = Wait-WinRT ($session.TrySkipNextAsync()) ([bool])
+            if (-not $accepted) { throw 'Spotify rejected next track' }
+            @{ ok = $true; state = $session.GetPlaybackInfo().PlaybackStatus.ToString().ToLowerInvariant() } | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
+            exit
+        }
         if ($TogglePlayPause) {
             if (-not $session) { throw 'No Spotify media session' }
             $expected = if ($session.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') { 'Paused' } else { 'Playing' }

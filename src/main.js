@@ -16,8 +16,8 @@ function main() {
   let lastArtist = "";
   let lastCover = "";
   let busy = false;
-  let pendingToggle = false;
-  let toggling = false;
+  let pendingCommand = "";
+  let controlling = false;
   /** @param {unknown} error */
   const report = (error) => console.error(`${APP}: ${error instanceof Error ? error.message : String(error)}`);
 
@@ -56,20 +56,21 @@ function main() {
       const wifi = await device.WifiStatusGet();
       if (stopped) return;
       if (wifi.state !== "connected") {
-        pendingToggle = false;
+        pendingCommand = "";
         delay = 30000;
         await draw("Spotify", "No Wi-Fi");
       } else {
-        if (pendingToggle) {
-          pendingToggle = false;
-          toggling = true;
+        if (pendingCommand) {
+          const command = pendingCommand;
+          pendingCommand = "";
+          controlling = true;
           try {
-            const control = await fetch(url.replace(/\/now-playing$/, "/playback/toggle"), {
+            const control = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
               method: "POST", headers: { "X-Busybar-Control": "1" },
             });
             if (stopped) return;
             if (!control.ok) throw new Error("Spotify playback control failed");
-          } finally { toggling = false; }
+          } finally { controlling = false; }
         }
         if (stopped) return;
         const response = await fetch(url);
@@ -89,22 +90,22 @@ function main() {
     } finally {
       busy = false;
       // A single chain prevents overlapping network and display requests.
-      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, pendingToggle ? 0 : delay);
+      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, pendingCommand ? 0 : delay);
     }
   }
 
   const unbind = listen("input", (event) => {
     if (stopped || event.action !== "short") return;
-    if (event.key === "start") {
-      if (!url || pendingToggle || toggling) return;
-      pendingToggle = true;
+    if (event.key === "start" || event.key === "ok") {
+      if (!url || pendingCommand || controlling) return;
+      pendingCommand = event.key === "ok" ? "next" : "toggle";
       clearTimeout(timer);
       if (!busy) void poll().catch(report);
       return;
     }
     if (event.key !== "back") return;
     stopped = true;
-    pendingToggle = false;
+    pendingCommand = "";
     clearTimeout(timer);
     setTimeout(unbind, 0);
   });
