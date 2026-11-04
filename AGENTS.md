@@ -125,3 +125,6 @@ Run `npm run typecheck` to check JavaScript using `jsconfig.json`.
 `companion/` runs on the PC with Node.js, not on JerryScript. Node built-ins are
 allowed there. `read-media.ps1` is the Windows WinRT adapter. Do not import it
 into the device app. Keep bridge responses small and do not retain metadata history.
+
+`thumbnail.cs` is a PC-only adapter for Windows thumbnail decoding. Convert covers
+on the PC to 16x16 XPM2 with at most 32 colors; never decode full artwork on the bar.

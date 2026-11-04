@@ -180,7 +180,7 @@ browser, which cannot reliably distinguish Spotify from other sites.
    after changing its settings. Updates arrive within approximately 15 seconds.
 
 If Windows asks, allow Node.js through the firewall on your private network.
-The bridge serves song title, artist and playback state without authentication
+The bridge serves song title, artist, thumbnail and playback state without authentication
 on port 8765 to reachable network clients. Use it only on a trusted local network;
 do not forward that port to the Internet. Stop it with Ctrl+C. No metadata is
 saved to disk. `BUSYBAR_SPOTIFY_PORT` can override the listening port.
@@ -220,3 +220,26 @@ Use `Get-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"` to inspect it and
 `npm.cmd run companion:autostart:remove` to stop and remove automatic startup.
 The task stores no Spotify credentials. Signing out stops the user session;
 the next sign-in starts the bridge again.
+
+## Album cover
+
+The left 16x16 pixels show the Windows media thumbnail; title and artist scroll
+in the remaining 54 pixels, separated by a 2-pixel gap. Windows crops and resizes
+the image on the PC, and the JavaScript companion converts it to at most 32 colors.
+The device receives less than 1 KiB of XPM2, never the original image. Only the
+current thumbnail is cached, in memory; unchanged covers are not redrawn. Missing
+artwork and offline states clear the cover while keeping the metadata usable.
+
+`companion/thumbnail.cs` is a small Windows COM/image-decoding adapter loaded by
+PowerShell. The device app and the bridge server remain JavaScript. No additional
+packages, Spotify API credentials, or Premium subscription are needed.
+
+To restart the hidden bridge after updating companion files:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/stop.ps1
+Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"
+```
+
+The stop command terminates only this checkout's bridge and its media-reader
+child process, avoiding orphaned listeners on port 8765.

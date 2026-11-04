@@ -8,7 +8,7 @@ if ($existing -and $existing.Description -ne $description) {
 }
 if ($Remove) {
     if ($existing) {
-        Stop-ScheduledTask -TaskName $taskName
+        & (Join-Path $PSScriptRoot 'stop.ps1')
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
     Write-Output 'Spotify bridge autostart removed.'

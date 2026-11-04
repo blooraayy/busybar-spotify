@@ -19,6 +19,30 @@ export function playbackLines(value) {
   return [clean(data.title) || "Spotify", data.state === "paused" ? "Paused" : clean(data.artist) || "Playing"];
 }
 
+/** Accept only the bridge's small 16x16 XPM2 payload. @param {unknown} value */
+export function playbackCover(value) {
+  const data = /** @type {{ state?: unknown, cover?: unknown }} */ (value || {});
+  if (data.state !== "playing" && data.state !== "paused") return "";
+  if (typeof data.cover !== "string" || data.cover.length > 900) return "";
+  const lines = data.cover.split("\n");
+  if (lines[0] !== "! XPM2") return "";
+  const header = /^16 16 ([1-9]|[12][0-9]|3[0-2]) 1$/.exec(lines[1] || "");
+  if (!header) return "";
+  const count = Number(header[1]);
+  if (lines.length !== 2 + count + 16) return "";
+  let symbols = "";
+  for (let i = 0; i < count; i++) {
+    const color = /^([A-Za-z]) c #[0-9a-f]{6}$/i.exec(lines[2 + i]);
+    if (!color || symbols.indexOf(color[1]) !== -1) return "";
+    symbols += color[1];
+  }
+  for (let i = 2 + count; i < lines.length; i++) {
+    if (lines[i].length !== 16) return "";
+    for (let x = 0; x < 16; x++) if (symbols.indexOf(lines[i].charAt(x)) === -1) return "";
+  }
+  return data.cover;
+}
+
 /** Bitmap fonts accept printable ASCII only. @param {string} text */
 export function displayText(text) {
   const accents = "àáâãäåèéêëìíîïòóôõöùúûüñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÑÇ";

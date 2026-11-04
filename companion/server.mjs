@@ -3,12 +3,14 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { coverXpm } from './cover.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
 const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid bridge port.');
 let latest = { state: 'error', title: '', artist: '' };
 let updated = 0;
+let lastRgb = ''; let cover = '';
 const reader = spawn('powershell.exe', [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
   '-File', fileURLToPath(new URL('./read-media.ps1', import.meta.url)),
@@ -18,7 +20,9 @@ lines.on('line', (line) => {
   try {
     const data = JSON.parse(line);
     if (!['playing', 'paused', 'idle', 'error'].includes(data.state)) return;
-    latest = { state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120) };
+    const rgb = typeof data.cover_rgb === 'string' && data.cover_rgb.length === 1536 ? data.cover_rgb : '';
+    if (rgb !== lastRgb) { cover = coverXpm(rgb); lastRgb = rgb; }
+    latest = { state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120), cover };
     updated = Date.now();
   } catch { console.error('busybar-spotify: invalid Windows media response'); }
 });

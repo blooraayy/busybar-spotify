@@ -2,6 +2,7 @@ param([switch]$Once, [switch]$ListSessions)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
+Add-Type -AssemblyName System.Drawing
 $managerType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
 $propertiesType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime]
 $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -13,6 +14,21 @@ function Wait-WinRT($Operation, $ResultType) {
     if (-not $task.Wait(10000)) { throw 'Windows media request timed out' }
     return $task.Result
 }
+# The native adapter projects WinRT streams into .NET's image decoder.
+Add-Type -Path (Join-Path $PSScriptRoot 'thumbnail.cs') -ReferencedAssemblies System.Drawing
+function Read-Cover($Thumbnail) {
+    if (-not $Thumbnail) { return '' }
+    $random = $null
+    try {
+        $streamType = [Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType = WindowsRuntime]
+        $random = Wait-WinRT ($Thumbnail.OpenReadAsync()) $streamType
+        return [BusyBarThumbnail]::Read($random)
+    } finally {
+        if ($null -ne $random -and [System.Runtime.InteropServices.Marshal]::IsComObject($random)) {
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($random)
+        }
+    }
+}
 $manager = Wait-WinRT ($managerType::RequestAsync()) $managerType
 if ($ListSessions) {
     [Console]::WriteLine('Session count: ' + $manager.GetSessions().Count)
@@ -20,6 +36,7 @@ if ($ListSessions) {
     Get-Process Spotify -ErrorAction SilentlyContinue | Select-Object -First 1 ProcessName, SessionId | Format-List
     exit
 }
+$coverKey = ''; $cover = ''
 do {
     try {
         $sessions = @($manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match 'Spotify' })
@@ -29,8 +46,16 @@ do {
             $media = Wait-WinRT ($session.TryGetMediaPropertiesAsync()) $propertiesType
             $status = $session.GetPlaybackInfo().PlaybackStatus.ToString()
             $state = if ($status -eq 'Playing') { 'playing' } elseif ($status -eq 'Paused') { 'paused' } else { 'idle' }
-            $result = @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist) }
-        } else { $result = @{ state = 'idle'; title = ''; artist = '' } }
+            $key = "$($media.Title)`n$($media.Artist)`n$($media.AlbumTitle)"
+            if ($key -ne $coverKey -or -not $cover) {
+                $cover = ''
+                try { $cover = Read-Cover $media.Thumbnail } catch {
+                    [Console]::Error.WriteLine('busybar-spotify: cover unavailable: ' + $_.Exception.Message)
+                }
+                $coverKey = $key
+            }
+            $result = @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = $cover }
+        } else { $coverKey = ''; $cover = ''; $result = @{ state = 'idle'; title = ''; artist = '' } }
     } catch {
         [Console]::Error.WriteLine('busybar-spotify: Windows media read failed: ' + $_.Exception.Message)
         $result = @{ state = 'error'; title = ''; artist = '' }
