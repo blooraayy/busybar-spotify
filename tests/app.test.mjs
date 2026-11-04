@@ -1,22 +1,27 @@
+import { volumeFrame } from '../companion/volume-frame.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { bridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
+const volumeSource = readFileSync(new URL('../src/volume-display.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
+const volumeContext = { row: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value], stack: (_, children) => children };
+vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, VOLUME_IDS };', volumeContext);
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function launch({ wifi = 'connected', fail = false, configured = true, pending = null, pendingControl = null, failControl = false } = {}) {
+function launch({ wifi = 'connected', fail = false, configured = true, pending = null, pendingControl = null, failControl = false, failClear = false } = {}) {
   const timers = new Map(); let next = 0; let handler; let unbound = 0; let fetches = 0;
   const commands = []; const frames = []; const clears = []; const delays = []; let track = { state: 'playing', title: 'Song', artist: 'Artist' };
-  const context = { manifest: { id: 'app.test' }, bridgeUrl, playbackLines, playbackCover,
+  const context = { ...volumeContext.volumeTools, manifest: { id: 'app.test' }, bridgeUrl, playbackLines, playbackCover,
     loadValues: async () => ({ bridge_url: configured ? 'http://192.168.1.10:8765/now-playing' : '' }),
-    row: (_, children) => children, column: (_, children) => children, render: value => value.flat(Infinity),
-    device: { WifiStatusGet: async () => ({ state: wifi }), DisplayDraw: async frame => frames.push(frame.elements), DisplayClear: async frame => clears.push(frame.element_ids) },
+    row: (_, children) => children, column: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value],
+    device: { WifiStatusGet: async () => ({ state: wifi }), DisplayDraw: async frame => frames.push(frame.elements), DisplayClear: async frame => { clears.push(frame.element_ids); if(failClear) throw Error('display unavailable'); } },
     fetch: async (url, options) => {
       if (options?.method === 'POST') {
         commands.push({url, options});
         if (pendingControl) return pendingControl;
         if (failControl) return {ok:false};
+        if (url.includes('/volume?')) return {ok:true,json:async()=>({ok:true,volume:65,frame:volumeFrame(65)})};
         track = {...track, state: track.state === 'playing' ? 'paused' : 'playing'};
         return {ok:true};
       }
@@ -189,4 +194,49 @@ test('failed volume adjustments are not replayed', async () => {
  await assert.rejects(adjustVolume(0),/Invalid volume steps/);
  await assert.rejects(adjustVolume(11),/Invalid volume steps/);
  await assert.rejects(adjustVolume(1.5),/Invalid volume steps/);
+});
+
+test('volume overlay uses the confirmed percentage and expires without extra polling', async () => {
+ const app=launch(); await flush();
+ app.input({key:'encoder',action:'clockwise',delta:1}); await app.tick();
+ const overlay=app.frames.find(frame=>frame.some(element=>element.id==='volume'));
+ assert.equal(overlay[0].data,volumeFrame(65));
+ assert.equal(app.timers.size,2);
+ const reads=app.fetches(); await app.tick();
+ assert.ok(app.clears.some(ids=>ids.includes('volume'))); assert.equal(app.fetches(),reads);
+ assert.equal(app.timers.size,1);
+});
+
+test('Back cancels the volume expiry timer and prevents display requests after exit', async () => {
+ const app=launch(); await flush(); app.input({key:'encoder',action:'clockwise',delta:1}); await app.tick();
+ app.input({key:'back',action:'short'}); assert.equal(app.timers.size,1); await app.tick();
+ assert.equal(app.timers.size,0); assert.equal(app.unbound(),1);
+});
+
+test('PC renders bounded volume frames with the confirmed level', () => {
+ for(const value of [0,1,50,65,99,100]) {
+  const frame=volumeFrame(value);
+  const elements=volumeContext.volumeTools.volumeElements(value,frame);
+  assert.equal(elements.length,1); assert.equal(elements[0].id,'volume');
+  assert.ok(frame.length<1700); assert.equal(frame.split('\n').length,37);
+  const palette=frame.split('\n').slice(2,21).map(line=>line[0]);
+  assert.equal(new Set(palette).size,19,'Gradient and disabled arrows must use distinct palette symbols');
+  assert.ok(!frame.split('\n').slice(-16)[0].includes('Z'),'No gray stripe in the gradient');
+  assert.ok(frame.split('\n').slice(-16).every(row=>row.length===72));
+ }
+ assert.notEqual(volumeFrame(60),volumeFrame(65));
+});
+
+test('failed indicator removal backs off and does not retry in a zero-delay loop', async () => {
+ const app=launch({failClear:true}); await flush(); app.input({key:'encoder',action:'clockwise',delta:1}); await app.tick();
+ await app.tick(); assert.equal(app.clears.length,1); assert.ok(app.delays.at(-1)>=20000);
+ await app.tick(); assert.equal(app.clears.length,2); assert.ok(app.delays.at(-1)>=40000);
+});
+
+test('volume-only commands reuse track metadata and send a compact native gradient', async () => {
+ const app=launch(); await flush(); const reads=app.fetches();
+ app.input({key:'encoder',action:'clockwise',delta:1}); await app.tick();
+ assert.equal(app.fetches(),reads);
+ const overlay=app.frames.find(frame=>frame.some(element=>element.id==='volume'));
+ assert.ok(JSON.stringify(overlay).length<1800);
 });

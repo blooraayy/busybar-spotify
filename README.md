@@ -269,12 +269,12 @@ The Windows media reader picks up the new title and cover on its next update.
 ## Volume wheel
 
 Turn the encoder clockwise to raise the Spotify audio-session volume and
-counterclockwise to lower it, by 2 percentage points per detent. This adjusts only Spotify in the Windows per-app mixer; other applications,
+counterclockwise to lower it, with the per-detent increment configured by the multiplier in `companion/volume.cs`. This adjusts only Spotify in the Windows per-app mixer; other applications,
 the system master volume and the BUSY Bar speaker volume are unchanged. It does
 not move Spotify's internal playback slider.
 
 Turns are combined after 200 ms of inactivity, with at most 10 pending steps
-(20 percentage points). Volume, next-track and play/pause requests run serially.
+(the percentage change depends on the multiplier). Volume, next-track and play/pause requests run serially.
 Opposite turns cancel; errors are not retried and Back discards pending changes.
 `POST /playback/volume?steps=<n>` uses the same control header and origin checks
 as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
@@ -282,3 +282,30 @@ Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0–
 
 If no Spotify audio session is available, volume commands fail without changing
 any other application or falling back to the system master volume.
+
+## Volume indicator
+
+After the PC confirms a volume change, the front display briefly shows the
+Sound settings-style green gradient bar, speaker icon and percentage between
+arrows. It disappears after 1.5 seconds and reveals the track again. The PC generates one bounded XPM2 image for the complete indicator. The device
+updates just that image; there is no per-frame network animation. The arrows
+are dimmed at 0 and 100, matching the native settings indicator.
+
+The percentage comes from `BusyBarVolume.Adjust` through the command response;
+it is not estimated from wheel steps. Changing the multiplier in `volume.cs`
+therefore changes both the actual volume and the displayed percentage without
+rebuilding the device app. The device keeps its default 128 KiB heap. Missing or invalid levels never produce a guessed value.
+
+Design reference: the firmware's read-only
+[sound settings slider](https://github.com/busy-app/busybar-firmware/blob/dev/applications/settings/sound_settings/widgets/slider_view.c).
+The speaker shapes are adapted from its
+[sound settings assets](https://github.com/busy-app/busybar-firmware/tree/dev/assets/images/external/sound_settings).
+
+Volume-only commands reuse the displayed track instead of fetching its metadata
+again. Connected Wi-Fi status is cached for at most 15 seconds during controls.
+
+The indicator is deliberately a single bitmap. During USB-monitored testing,
+the multi-element implementation reproduced device reboots while commands alone
+and the native Sound settings were stable. A larger JavaScript heap did not help.
+Moving the indicator rendering to the PC avoided the reboots in the repeated test;
+no firmware files were modified. The exact firmware failure was not established.

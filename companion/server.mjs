@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { volumeFrame } from './volume-frame.mjs';
 import { coverXpm } from './cover.mjs';
 import { playbackCommand, adjustVolume } from './control.mjs';
 
@@ -40,7 +41,7 @@ const server = createServer((req, res) => {
     void operation.then(state => {
       if (state === 'playing' || state === 'paused') latest = { ...latest, state };
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end('{"ok":true}');
+      res.end(JSON.stringify(volume ? { ok: true, volume: state, frame: volumeFrame(state) } : { ok: true }));
     }).catch(() => {
       console.error('busybar-spotify: playback control failed');
       if (!res.destroyed) res.writeHead(503).end();

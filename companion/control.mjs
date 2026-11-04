@@ -23,4 +23,6 @@ export async function adjustVolume(steps, signal) {
   ], { windowsHide: true, timeout: 15000, maxBuffer: 2048, signal });
   const result = JSON.parse(stdout);
   if (result.ok !== true) throw new Error('Spotify volume control failed');
+  if (!Number.isInteger(result.volume) || result.volume < 0 || result.volume > 100) throw new Error('Invalid Spotify volume response');
+  return result.volume;
 }

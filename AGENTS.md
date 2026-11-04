@@ -128,3 +128,9 @@ into the device app. Keep bridge responses small and do not retain metadata hist
 
 `thumbnail.cs` is a PC-only adapter for Windows thumbnail decoding. Convert covers
 on the PC to 16x16 XPM2 with at most 32 colors; never decode full artwork on the bar.
+
+## Font map scanning
+
+The CLI discovers `font:` literals only under `src/`. Keep display trees that use
+fonts in `src/` (including `src/volume-display.js`), so their font metrics are
+bundled. Helpers outside `src/` are not scanned for fonts.
