@@ -9,11 +9,11 @@ const volumeContext = { row: (_, children) => children, render: value => Array.i
 vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, VOLUME_IDS };', volumeContext);
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function launch({ wifi = 'connected', fail = false, configured = true, pending = null, pendingControl = null, failControl = false, failClear = false } = {}) {
+function launch({ wifi = 'connected', fail = false, configured = true, pending = null, pendingControl = null, failControl = false, failClear = false, volumeStep = 5 } = {}) {
   const timers = new Map(); let next = 0; let handler; let unbound = 0; let fetches = 0;
   const commands = []; const frames = []; const clears = []; const delays = []; let track = { state: 'playing', title: 'Song', artist: 'Artist' };
   const context = { ...volumeContext.volumeTools, manifest: { id: 'app.test' }, bridgeUrl, playbackLines, playbackCover,
-    loadValues: async () => ({ bridge_url: configured ? 'http://192.168.1.10:8765/now-playing' : '' }),
+    loadValues: async () => ({ volume_step: volumeStep, bridge_url: configured ? 'http://192.168.1.10:8765/now-playing' : '' }),
     row: (_, children) => children, column: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value],
     device: { WifiStatusGet: async () => ({ state: wifi }), DisplayDraw: async frame => frames.push(frame.elements), DisplayClear: async frame => { clears.push(frame.element_ids); if(failClear) throw Error('display unavailable'); } },
     fetch: async (url, options) => {
@@ -163,9 +163,9 @@ test('encoder batches turns and clamps the accumulated volume change', async () 
  const app=launch(); await flush();
  for(let i=0;i<30;i++) app.input({key:'encoder',action:'clockwise',delta:1});
  assert.equal(app.commands.length,0); assert.equal(app.timers.size,1);
- await app.tick(); assert.equal(app.commands[0].url,'http://192.168.1.10:8765/playback/volume?steps=10');
+ await app.tick(); assert.equal(app.commands[0].url,'http://192.168.1.10:8765/playback/volume?steps=10&step_percent=5');
  app.input({key:'encoder',action:'counterclockwise',delta:-1}); await app.tick();
- assert.equal(app.commands[1].url,'http://192.168.1.10:8765/playback/volume?steps=-1');
+ assert.equal(app.commands[1].url,'http://192.168.1.10:8765/playback/volume?steps=-1&step_percent=5');
 });
 
 test('opposite turns cancel, and Back clears a pending volume update', async () => {
@@ -183,7 +183,7 @@ test('volume changes arriving during a command remain bounded and serialized', a
  for(let i=0;i<4;i++) app.input({key:'encoder',action:'clockwise',delta:1});
  assert.equal(app.commands.length,1);
  finish({ok:true}); await flush(); await app.tick();
- assert.equal(app.commands.length,2); assert.ok(app.commands[1].url.endsWith('volume?steps=4'));
+ assert.equal(app.commands.length,2); assert.ok(app.commands[1].url.endsWith('volume?steps=4&step_percent=5'));
 });
 
 test('failed volume adjustments are not replayed', async () => {
@@ -239,4 +239,20 @@ test('volume-only commands reuse track metadata and send a compact native gradie
  assert.equal(app.fetches(),reads);
  const overlay=app.frames.find(frame=>frame.some(element=>element.id==='volume'));
  assert.ok(JSON.stringify(overlay).length<1800);
+});
+
+test('the configured volume percentage is sent to the PC, with safe defaults', async () => {
+ for(const [setting,expected] of [[1,1],[10,10],[100,100],[0,5],[101,5],[2.5,5],['10',5],[null,5]]) {
+  const app=launch({volumeStep:setting}); await flush();
+  app.input({key:'encoder',action:'clockwise',delta:1}); await app.tick();
+  assert.ok(app.commands[0].url.endsWith(`step_percent=${expected}`));
+ }
+});
+
+test('the bridge accepts valid step percentages and rejects malformed controls', async () => {
+ const {parseVolumeRequest,adjustVolume}=await import('../companion/control.mjs');
+ assert.deepEqual(parseVolumeRequest('/playback/volume?steps=-3&step_percent=10'),{steps:-3,stepPercent:10});
+ assert.deepEqual(parseVolumeRequest('/playback/volume?steps=1'),{steps:1,stepPercent:5});
+ for(const suffix of ['0','101','1.5','-1','abc']) assert.equal(parseVolumeRequest('/playback/volume?steps=1&step_percent='+suffix),null);
+ await assert.rejects(adjustVolume(1,undefined,101),/Invalid volume percentage/);
 });

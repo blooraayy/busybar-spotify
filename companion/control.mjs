@@ -15,11 +15,17 @@ export async function playbackCommand(command, signal) {
   return result.state;
 }
 
-export async function adjustVolume(steps, signal) {
+export function parseVolumeRequest(url) {
+  const match = /^\/playback\/volume\?steps=(-?(?:[1-9]|10))(?:&step_percent=([1-9][0-9]?|100))?$/.exec(url || '');
+  return match ? {steps:Number(match[1]), stepPercent:match[2] ? Number(match[2]) : 5} : null;
+}
+
+export async function adjustVolume(steps, signal, stepPercent = 5) {
+  if (!Number.isInteger(stepPercent) || stepPercent < 1 || stepPercent > 100) throw new Error('Invalid volume percentage');
   if (!Number.isInteger(steps) || steps === 0 || Math.abs(steps) > 10) throw new Error('Invalid volume steps');
   const { stdout } = await run('powershell.exe', [
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-File', fileURLToPath(new URL('./volume.ps1', import.meta.url)), '-Steps', String(steps),
+    '-File', fileURLToPath(new URL('./volume.ps1', import.meta.url)), '-Steps', String(steps), '-StepPercent', String(stepPercent),
   ], { windowsHide: true, timeout: 15000, maxBuffer: 2048, signal });
   const result = JSON.parse(stdout);
   if (result.ok !== true) throw new Error('Spotify volume control failed');

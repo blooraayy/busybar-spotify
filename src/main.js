@@ -20,6 +20,7 @@ function main() {
   let pendingCommand = "";
   let controlling = false;
   let pendingVolume = 0;
+  let volumeStep = 5;
   let volumeTimer = 0;
   let shownVolume = -1;
   let hideVolume = false;
@@ -113,7 +114,7 @@ function main() {
       } else {
         if (pendingCommand || pendingVolume) {
           stage = "control";
-          const command = pendingCommand || `volume?steps=${pendingVolume}`;
+          const command = pendingCommand || `volume?steps=${pendingVolume}&step_percent=${volumeStep}`;
           if (pendingCommand) pendingCommand = "";
           else pendingVolume = 0;
           controlling = true;
@@ -195,6 +196,8 @@ function main() {
     const values = await loadValues();
     if (stopped) return;
     url = bridgeUrl(values?.bridge_url);
+    const step = values?.volume_step;
+    if (typeof step === "number" && Number.isInteger(step) && step >= 1 && step <= 100) volumeStep = step;
     if (!url) { await draw("Spotify", "Set PC URL"); return; }
     await poll();
   }

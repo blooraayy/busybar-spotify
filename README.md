@@ -269,12 +269,14 @@ The Windows media reader picks up the new title and cover on its next update.
 ## Volume wheel
 
 Turn the encoder clockwise to raise the Spotify audio-session volume and
-counterclockwise to lower it, with the per-detent increment configured by the multiplier in `companion/volume.cs`. This adjusts only Spotify in the Windows per-app mixer; other applications,
+counterclockwise to lower it, with the per-detent increment configured in **Apps > Spotify > Volume step (%)**
+in the BUSY Bar web interface. The default is 5 percentage points; the range is
+1-100. Save and restart the app on the BUSY Bar to apply the setting. This adjusts only Spotify in the Windows per-app mixer; other applications,
 the system master volume and the BUSY Bar speaker volume are unchanged. It does
 not move Spotify's internal playback slider.
 
 Turns are combined after 200 ms of inactivity, with at most 10 pending steps
-(the percentage change depends on the multiplier). Volume, next-track and play/pause requests run serially.
+(the percentage change depends on the configured step). Volume, next-track and play/pause requests run serially.
 Opposite turns cancel; errors are not retried and Back discards pending changes.
 `POST /playback/volume?steps=<n>` uses the same control header and origin checks
 as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
@@ -292,9 +294,9 @@ updates just that image; there is no per-frame network animation. The arrows
 are dimmed at 0 and 100, matching the native settings indicator.
 
 The percentage comes from `BusyBarVolume.Adjust` through the command response;
-it is not estimated from wheel steps. Changing the multiplier in `volume.cs`
-therefore changes both the actual volume and the displayed percentage without
-rebuilding the device app. The device keeps its default 128 KiB heap. Missing or invalid levels never produce a guessed value.
+it is not estimated from wheel steps. Changing **Volume step (%)** therefore changes both the actual volume and the
+displayed percentage without editing code or rebuilding. Restart the device app
+after saving the setting. The device keeps its default 128 KiB heap. Missing or invalid levels never produce a guessed value.
 
 Design reference: the firmware's read-only
 [sound settings slider](https://github.com/busy-app/busybar-firmware/blob/dev/applications/settings/sound_settings/widgets/slider_view.c).

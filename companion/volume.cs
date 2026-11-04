@@ -51,7 +51,9 @@ interface ISessionVolume {
 }
 public static class BusyBarVolume {
     // Only Spotify sessions are eligible. There is no system-volume fallback.
-    public static int Adjust(int steps) {
+    public static int Adjust(int steps) { return Adjust(steps, 5); }
+    public static int Adjust(int steps, int stepPercent) {
+        if (stepPercent < 1 || stepPercent > 100) throw new ArgumentOutOfRangeException("stepPercent");
         if (steps < -10 || steps > 10) throw new ArgumentOutOfRangeException("steps");
         IDeviceEnumerator enumerator = null;
         IDeviceCollection devices = null;
@@ -91,7 +93,7 @@ public static class BusyBarVolume {
                             var volume = (ISessionVolume)session;
                             float current;
                             Marshal.ThrowExceptionForHR(volume.GetMasterVolume(out current));
-                            float target = Math.Max(0f, Math.Min(1f, current + steps * 0.05f)); // Adjust the multiplier to change how much the volume increases or decreases per wheel detent.
+                            float target = Math.Max(0f, Math.Min(1f, current + steps * (stepPercent / 100f))); // The per-detent percentage comes from the BUSY Bar app settings.
                             if (steps != 0) {
                                 Guid context = Guid.Empty;
                                 Marshal.ThrowExceptionForHR(volume.SetMasterVolume(target, ref context));

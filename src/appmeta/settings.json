@@ -8,6 +8,15 @@
       "description": "PC companion URL, e.g. http://192.168.1.10:8765/now-playing. Restart the app after changing it.",
       "default": "",
       "max_length": 200
+    },
+    "volume_step": {
+      "type": "integer",
+      "label": "Volume step (%)",
+      "description": "Percentage points per wheel detent (1-100). Restart Spotify on the BUSY Bar after saving.",
+      "default": 5,
+      "min": 1,
+      "max": 100,
+      "step": 1
     }
   }
 }
