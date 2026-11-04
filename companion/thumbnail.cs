@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
@@ -27,23 +28,31 @@ public static class BusyBarThumbnail {
             if (Marshal.ReadInt32(read) != bytes.Length) return "";
             using (var memory = new MemoryStream(bytes))
             using (var image = Image.FromStream(memory))
-            using (var bitmap = new Bitmap(16, 16))
-            using (var graphics = Graphics.FromImage(bitmap)) {
-                graphics.Clear(Color.Black);
-                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                int side = Math.Min(image.Width, image.Height);
-                graphics.DrawImage(image, new Rectangle(0, 0, 16, 16),
-                    new Rectangle((image.Width - side) / 2, (image.Height - side) / 2, side, side), GraphicsUnit.Pixel);
-                var hex = new StringBuilder(1536);
-                for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
-                    var pixel = bitmap.GetPixel(x, y);
-                    hex.Append(pixel.R.ToString("x2")).Append(pixel.G.ToString("x2")).Append(pixel.B.ToString("x2"));
-                }
-                return hex.ToString();
-            }
+                return Resize(image);
         } finally {
             Marshal.FreeCoTaskMem(read);
             if (stream != null) Marshal.ReleaseComObject(stream);
+        }
+    }
+
+    public static string Resize(Image image) {
+        using (var bitmap = new Bitmap(16, 16))
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var attributes = new ImageAttributes()) {
+            graphics.Clear(Color.Black);
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            int side = Math.Min(image.Width, image.Height);
+            // Mirror boundary samples instead of blending with transparent black.
+            attributes.SetWrapMode(WrapMode.TileFlipXY);
+            graphics.DrawImage(image, new Rectangle(0, 0, 16, 16),
+                (image.Width - side) / 2, (image.Height - side) / 2, side, side,
+                GraphicsUnit.Pixel, attributes);
+            var hex = new StringBuilder(1536);
+            for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
+                var pixel = bitmap.GetPixel(x, y);
+                hex.Append(pixel.R.ToString("x2")).Append(pixel.G.ToString("x2")).Append(pixel.B.ToString("x2"));
+            }
+            return hex.ToString();
         }
     }
 }
