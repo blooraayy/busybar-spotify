@@ -1,3 +1,4 @@
+import { createChangeFeed } from './change-feed.mjs';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -12,6 +13,18 @@ const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid bridge port.');
 let latest = { state: 'error', title: '', artist: '' };
 let updated = 0;
+let revision = 0;
+const feed = createChangeFeed(() => {
+  const fresh = Date.now() - updated < 40000;
+  return { tag: fresh ? `"${revision}"` : '"stale"', data: fresh ? latest : {state:'error',title:'',artist:''} };
+});
+function publish(next) {
+  const changed = next.state !== latest.state || next.title !== latest.title || next.artist !== latest.artist || next.cover !== latest.cover;
+  if (changed) revision++;
+  latest = next;
+  updated = Date.now();
+  if (changed) feed.notify();
+}
 let lastRgb = ''; let cover = '';
 let control = null;
 const reader = spawn('powershell.exe', [
@@ -25,12 +38,17 @@ lines.on('line', (line) => {
     if (!['playing', 'paused', 'idle', 'error'].includes(data.state)) return;
     const rgb = typeof data.cover_rgb === 'string' && data.cover_rgb.length === 1536 ? data.cover_rgb : '';
     if (rgb !== lastRgb) { cover = coverXpm(rgb); lastRgb = rgb; }
-    latest = { state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120), cover };
+    publish({ state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120), cover });
     updated = Date.now();
   } catch { console.error('busybar-spotify: invalid Windows media response'); }
 });
 reader.stderr.on('data', (data) => process.stderr.write(data));
 const server = createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/playback/cancel-wait') {
+    if (req.headers.origin || req.headers['x-busybar-control'] !== '1') { res.writeHead(403).end(); return; }
+    feed.cancel(req.headers['x-busybar-client']);
+    res.writeHead(204, {Connection:'close'}).end(); return;
+  }
   const volume = parseVolumeRequest(req.url);
   if (req.method === 'POST' && (volume || req.url === '/playback/toggle' || req.url === '/playback/next')) {
     // Browsers cannot submit controls with a cross-origin form or simple fetch.
@@ -39,7 +57,7 @@ const server = createServer((req, res) => {
     control = new AbortController();
     const operation = volume ? adjustVolume(volume.steps, control.signal, volume.stepPercent) : playbackCommand(req.url === '/playback/next' ? 'next' : 'toggle', control.signal);
     void operation.then(state => {
-      if (state === 'playing' || state === 'paused') latest = { ...latest, state };
+      if (state === 'playing' || state === 'paused') publish({ ...latest, state });
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(volume ? { ok: true, volume: state, frame: volumeFrame(state) } : { ok: true }));
     }).catch(() => {
@@ -49,9 +67,7 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.method !== 'GET' || req.url !== '/now-playing') { res.writeHead(404).end(); return; }
-  const current = Date.now() - updated < 20000 ? latest : { state: 'error', title: '', artist: '' };
-  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(current));
+  feed.get(req, res);
 });
 server.requestTimeout = 5000;
 server.headersTimeout = 5000;
@@ -61,6 +77,7 @@ function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   control?.abort();
+  feed.close();
   process.exitCode = code;
   lines.close();
   reader.kill();

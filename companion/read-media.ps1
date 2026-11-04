@@ -39,8 +39,19 @@ if ($ListSessions) {
     exit
 }
 $coverKey = ''; $cover = ''
+$events = $null
+if (-not ($Once -or $TogglePlayPause -or $SkipNext)) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'media-events.cs')
+    $events = [BusyBarMediaEvents]::new()
+}
+try {
 do {
     try {
+        if ($events) {
+            $events.Clear()
+            $events.Watch($manager, $managerType, 'SessionsChanged')
+            $events.Watch($manager, $managerType, 'CurrentSessionChanged')
+        }
         $sessions = @($manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match 'Spotify' })
         $session = $sessions | Where-Object { $_.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing' } | Select-Object -First 1
         if (-not $session) { $session = $sessions | Select-Object -First 1 }
@@ -65,11 +76,20 @@ do {
             exit
         }
         if ($session) {
+            if ($events) {
+                $sessionType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSession, Windows.Media.Control, ContentType = WindowsRuntime]
+                $events.Watch($session, $sessionType, 'MediaPropertiesChanged')
+                $events.Watch($session, $sessionType, 'PlaybackInfoChanged')
+            }
             $media = Wait-WinRT ($session.TryGetMediaPropertiesAsync()) $propertiesType
             $status = $session.GetPlaybackInfo().PlaybackStatus.ToString()
             $state = if ($status -eq 'Playing') { 'playing' } elseif ($status -eq 'Paused') { 'paused' } else { 'idle' }
             $key = "$($media.Title)`n$($media.Artist)`n$($media.AlbumTitle)"
             if ($key -ne $coverKey -or -not $cover) {
+                if ($key -ne $coverKey -and -not $Once) {
+                    # Publish text immediately; thumbnail I/O must not hold it up.
+                    @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = '' } | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
+                }
                 $cover = ''
                 try { $cover = Read-Cover $media.Thumbnail } catch {
                     [Console]::Error.WriteLine('busybar-spotify: cover unavailable: ' + $_.Exception.Message)
@@ -83,5 +103,7 @@ do {
         $result = @{ state = 'error'; title = ''; artist = '' }
     }
     $result | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
-    if (-not $Once) { Start-Sleep -Seconds 5 }
+    # Events wake this immediately; the coarse timeout is a health/recovery check.
+    if ($events) { [void]$events.Wait(15000) }
 } while (-not $Once)
+} finally { if ($events) { $events.Dispose() } }

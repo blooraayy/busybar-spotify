@@ -155,7 +155,7 @@ tool reads aliases from that filename. TypeScript is a development checker only;
 `types/env.d.ts` describes firmware globals and is not executable app code.
 
 The app displays Spotify track metadata from the Windows companion. A short Back
-press stops all polling and exits. A short Start press toggles Spotify playback through the Windows companion.
+press cancels the subscription, clears timers and exits. A short Start press toggles Spotify playback through the Windows companion.
 
 CLI 0.6.0 generates Windows font-map imports with backslashes. The version is pinned
 and `tools/patch-busy-cli.mjs` applies an idempotent fix after install and before
@@ -177,7 +177,7 @@ browser, which cannot reliably distinguish Spotify from other sites.
 4. In the device's app settings, set **Bridge URL** to the LAN URL printed by the
    companion, for example `http://192.168.1.10:8765/now-playing`.
 5. Run `npm.cmd run app:run` and play music in Spotify. Restart the device app
-   after changing its settings. Updates arrive within approximately 15 seconds.
+   after changing its settings. Updates normally arrive within approximately 0.5-1.5 seconds.
 
 If Windows asks, allow Node.js through the firewall on your private network.
 The bridge serves song title, artist, thumbnail and playback state without authentication
@@ -189,14 +189,14 @@ The JavaScript companion uses a small PowerShell adapter for the Windows-only
 WinRT media API. It runs with a hidden window and a process-local execution-policy
 override; it does not change the machine execution policy or install packages.
 
-The device polls every 10 seconds without overlapping requests, checks Wi-Fi
-first, and backs off to at most 60 seconds after connection errors. It sends only
+The device keeps one change subscription open, checks Wi-Fi before reconnecting,
+and backs off to at most 60 seconds after connection errors. It sends only
 changed display elements. Long titles scroll using firmware rendering, without
 per-frame HTTP calls. Accents are transliterated for the ASCII bitmap fonts;
 other unsupported characters become spaces. Paused playback shows `Paused`;
 no desktop Spotify session shows `No music`.
 
-Run `npm.cmd test` for polling, error handling, metadata and cleanup checks.
+Run `npm.cmd test` for subscriptions, controls, error handling and cleanup checks.
 
 If Spotify is open but the bridge returns `idle`, enable **Show desktop overlay
 when using media keys** in Spotify Settings > Display, then pause/resume playback.
@@ -255,8 +255,8 @@ for a trusted LAN; reachable local clients can control playback through it.
 
 Only one toggle can be pending; repeated presses while it is running are ignored.
 A command is never retried automatically, to avoid accidentally toggling twice.
-The device refreshes metadata after a successful command. A short Back press
-cancels queued commands and polling; an already-sent command may still complete.
+Windows events update metadata after a command. A short Back press
+cancels queued commands and the change subscription; an already-sent command may still complete.
 
 ## Next track
 
@@ -264,7 +264,7 @@ A short press of the encoder's **OK** button requests the next Spotify track via
 `POST /playback/next` and Windows `TrySkipNextAsync`. Turning the wheel or holding
 OK does not skip tracks. Next and play/pause share one pending command slot;
 presses during an active command are ignored and failed skips are not retried.
-The Windows media reader picks up the new title and cover on its next update.
+The Windows media reader wakes on media/session events for the new title and cover.
 
 ## Volume wheel
 
@@ -304,7 +304,7 @@ The speaker shapes are adapted from its
 [sound settings assets](https://github.com/busy-app/busybar-firmware/tree/dev/assets/images/external/sound_settings).
 
 Volume-only commands reuse the displayed track instead of fetching its metadata
-again. Connected Wi-Fi status is cached for at most 15 seconds during controls.
+again. Connected Wi-Fi status is cached for at most 15 seconds between subscription renewals.
 
 The indicator is deliberately a single bitmap. During USB-monitored testing,
 the multi-element implementation reproduced device reboots while commands alone
@@ -318,3 +318,34 @@ no firmware files were modified. The exact firmware failure was not established.
 `icon_back_11x11.png` is the grayscale version for the back display. Both are
 packaged app metadata, with no runtime downloads. They use a pixel-aligned adaptation with opaque dark waves for legibility at
 these sizes, based on the [official Spotify icon asset](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
+
+## Playback changes and subscriptions
+
+The PC listens to Windows WinRT `SessionsChanged`, `CurrentSessionChanged`,
+`MediaPropertiesChanged` and `PlaybackInfoChanged` events. `media-events.cs`
+bridges their registration-token API, which PowerShell cannot subscribe to
+with `Register-ObjectEvent`. Notifications are coalesced by an AutoResetEvent;
+a 15-second health check recovers missed events and session changes.
+
+The device uses long polling: one `GET /now-playing` with `X-Busybar-Wait: 1`,
+`X-Busybar-Client` and `If-None-Match` waits until the metadata revision changes.
+The bridge responds immediately to changes. Quiet requests renew after three
+seconds with an empty HTTP 304, below the inactivity timeout observed on API
+27.14.0. Renewals do not parse or redraw unchanged artwork. Legacy bridges fall
+back to a two-second poll. Network failures back off from 10 to 60 seconds.
+
+Controls have their own serialized request chain and remain usable while the
+subscription waits. A separate display queue coalesces metadata/volume changes
+and allows only one display operation at a time. The bridge holds at most four
+waiting clients; disconnects, cancellation and shutdown clear their timers.
+
+Back cancels the waiting request through `POST /playback/cancel-wait`, clears
+all app timers, releases the input listener after its callback and lets already
+sent requests settle. The cancellation route uses the same control header and
+browser-origin restrictions as playback commands. Launch identifiers contain
+no credentials; a bounded cancellation cache covers request-arrival races.
+
+Title and artist are published before thumbnail decoding. Changes normally
+arrive on the next Windows event plus network/display processing, rather than
+waiting for a fixed refresh interval. No hard latency guarantee is made for
+Spotify/Windows or a disconnected network.

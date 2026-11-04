@@ -6,59 +6,101 @@ import { volumeElements, VOLUME_IDS } from "./volume-display";
 import manifest from "./appmeta/manifest.json";
 
 const APP = manifest.id;
-const POLL_MS = 10000;
 
 function main() {
   let stopped = false;
-  let timer = 0;
-  let delay = POLL_MS;
   let url = "";
+  const client = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  let watchTimer = 0;
+  let controlTimer = 0;
+  let volumeTimer = 0;
+  let displayRetry = 0;
+  let watching = false;
+  let controlling = false;
+  let displayBusy = false;
+  let retryDelay = 10000;
+  let pendingCommand = "";
+  let pendingVolume = 0;
+  let volumeStep = 5;
+  let lastEtag = "";
   let lastTitle = "";
   let lastArtist = "";
   let lastCover = "";
-  let busy = false;
-  let pendingCommand = "";
-  let controlling = false;
-  let pendingVolume = 0;
-  let volumeStep = 5;
-  let volumeTimer = 0;
   let shownVolume = -1;
   let hideVolume = false;
-  let wifiCheckedAt = 0;
   let wifiConnected = false;
+  let wifiCheckedAt = 0;
+  /** @type {Promise<boolean> | null} */
+  let wifiRequest = null;
+  /** @type {{ title: string, artist: string, cover: string } | null} */
+  let pendingTrack = null;
+  /** @type {{ value: number, frame: unknown } | null} */
+  let pendingIndicator = null;
   /** @param {unknown} error */
   const report = (error) => console.error(`${APP}: ${error instanceof Error ? error.message : String(error)}`);
 
-  async function clearVolume() {
-    clearTimeout(volumeTimer);
-    hideVolume = false;
-    if (shownVolume < 0 || stopped) return;
-    try {
-      await device.DisplayClear({ application_name: APP, element_ids: VOLUME_IDS });
-    } catch (error) {
-      hideVolume = true;
-      throw error;
-    }
-    shownVolume = -1;
+  async function online() {
+    if (wifiConnected && Date.now() - wifiCheckedAt < 15000) return true;
+    if (!wifiRequest) wifiRequest = device.WifiStatusGet().then(value => {
+      wifiConnected = value.state === "connected";
+      wifiCheckedAt = Date.now();
+      return wifiConnected;
+    }).finally(() => { wifiRequest = null; });
+    return wifiRequest;
   }
 
+  /** @param {string} title @param {string} artist @param {string} cover */
+  function queueTrack(title, artist, cover = "") {
+    if (stopped) return;
+    pendingTrack = { title, artist, cover };
+    kickDisplay();
+  }
+  function kickDisplay() {
+    if (!stopped && !displayBusy && !displayRetry) void flushDisplay().catch(report);
+  }
+  async function flushDisplay() {
+    if (stopped || displayBusy) return;
+    displayBusy = true;
+    try {
+      // Coalesce to the latest metadata/volume; never queue complete frames.
+      while (!stopped && (pendingIndicator || hideVolume || pendingTrack)) {
+        if (pendingIndicator) {
+          const indicator = pendingIndicator;
+          pendingIndicator = null;
+          await showVolume(indicator.value, indicator.frame);
+        } else if (hideVolume) {
+          await clearVolume();
+        } else if (pendingTrack) {
+          const track = pendingTrack;
+          pendingTrack = null;
+          try { await draw(track.title, track.artist, track.cover); }
+          catch (error) { if (!pendingTrack) pendingTrack = track; throw error; }
+        }
+      }
+    } catch (error) {
+      report(error);
+      if (!stopped && (pendingTrack || hideVolume)) displayRetry = setTimeout(() => {
+        displayRetry = 0;
+        kickDisplay();
+      }, 10000);
+    } finally { displayBusy = false; }
+  }
+  async function clearVolume() {
+    clearTimeout(volumeTimer);
+    if (shownVolume >= 0 && !stopped) await device.DisplayClear({ application_name: APP, element_ids: VOLUME_IDS });
+    shownVolume = -1;
+    hideVolume = false;
+  }
   /** @param {number} value @param {unknown} frame */
   async function showVolume(value, frame) {
     if (stopped) return;
     clearTimeout(volumeTimer);
     hideVolume = false;
     if (value !== shownVolume) {
-      const elements = volumeElements(value, frame);
-      await device.DisplayDraw({ application_name: APP, priority: 50, elements });
+      await device.DisplayDraw({ application_name: APP, priority: 50, elements: volumeElements(value, frame) });
       shownVolume = value;
     }
-    if (stopped) return;
-    volumeTimer = setTimeout(() => {
-      if (stopped) return;
-      hideVolume = true;
-      clearTimeout(timer);
-      if (!busy) void poll().catch(report);
-    }, 1500);
+    if (!stopped) volumeTimer = setTimeout(() => { hideVolume = true; kickDisplay(); }, 1500);
   }
 
   /** @param {string} title @param {string} artist @param {string} cover */
@@ -89,79 +131,73 @@ function main() {
     lastCover = cover;
   }
 
-  async function poll() {
-    if (stopped || busy) return;
-    busy = true;
-    let failed = false;
-    let stage = "display";
+
+  async function watch() {
+    if (stopped || watching) return;
+    watching = true;
+    let nextDelay = 100;
     try {
-      if (hideVolume) {
-        await clearVolume();
-        if (stopped || (!pendingCommand && !pendingVolume)) return;
+      if (!await online()) {
+        lastEtag = "";
+        nextDelay = 30000;
+        queueTrack("Spotify", "No Wi-Fi");
+        return;
       }
-      stage = "network";
-      if (!wifiConnected || Date.now() - wifiCheckedAt >= 15000) {
-        const wifi = await device.WifiStatusGet();
-        if (stopped) return;
-        wifiConnected = wifi.state === "connected";
-        wifiCheckedAt = Date.now();
-      }
-      if (!wifiConnected) {
-        pendingCommand = "";
-        pendingVolume = 0;
-        delay = 30000;
-        await draw("Spotify", "No Wi-Fi");
-      } else {
-        if (pendingCommand || pendingVolume) {
-          stage = "control";
-          const command = pendingCommand || `volume?steps=${pendingVolume}&step_percent=${volumeStep}`;
-          if (pendingCommand) pendingCommand = "";
-          else pendingVolume = 0;
-          controlling = true;
-          try {
-            const control = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
-              method: "POST", headers: { "X-Busybar-Control": "1" },
-            });
-            if (stopped) return;
-            if (!control.ok) throw new Error("Spotify playback control failed");
-            if (command.indexOf("volume?steps=") === 0) {
-              const result = await control.json();
-              if (stopped) return;
-              if (!Number.isInteger(result.volume) || result.volume < 0 || result.volume > 100) throw new Error("Invalid Spotify volume response");
-              stage = "display";
-              await showVolume(result.volume, result.frame);
-              // The current track stays underneath the overlay; no metadata fetch
-              // or cover parsing is needed for a volume-only command.
-              delay = POLL_MS;
-              return;
-            }
-          } finally { controlling = false; }
-        }
-        if (stopped) return;
-        stage = "network";
-        const response = await fetch(url);
-        if (stopped) return;
+      if (stopped) return;
+      const headers = { "X-Busybar-Client": client, "X-Busybar-Wait": "1", "If-None-Match": lastEtag };
+      const response = await fetch(url, { headers });
+      if (stopped) return;
+      // Older bridges fall back to a slow poll rather than spinning on 304.
+      if (response.headers?.get("X-Busybar-Events") !== "1") nextDelay = 2000;
+      if (response.status === 204) return;
+      if (response.status !== 304) {
         if (!response.ok) throw new Error("PC bridge unavailable");
         const data = await response.json();
         if (stopped) return;
         const [title, artist] = playbackLines(data);
-        stage = "display";
-        await draw(title, artist, playbackCover(data));
-        delay = POLL_MS;
+        queueTrack(title, artist, playbackCover(data));
+        lastEtag = response.headers?.get("ETag") || "";
       }
+      retryDelay = 10000;
     } catch (error) {
       if (stopped) return;
-      failed = true;
       report(error);
-      if (stage === "network") wifiConnected = false;
-      pendingVolume = 0;
-      if (!hideVolume) try { await clearVolume(); } catch (clearError) { report(clearError); }
-      delay = Math.min(delay * 2, 60000);
-      try { await draw("Spotify", stage === "display" ? "Display error" : stage === "control" ? "Control error" : "PC offline"); } catch (drawError) { report(drawError); }
+      wifiConnected = false;
+      lastEtag = "";
+      queueTrack("Spotify", "PC offline");
+      nextDelay = retryDelay;
+      retryDelay = Math.min(retryDelay * 2, 60000);
     } finally {
-      busy = false;
-      // A single chain prevents overlapping network and display requests.
-      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, (hideVolume && !failed) || pendingCommand ? 0 : pendingVolume ? 200 : delay);
+      watching = false;
+      if (!stopped) watchTimer = setTimeout(() => { void watch().catch(report); }, nextDelay);
+    }
+  }
+
+  async function controls() {
+    if (stopped || controlling || !url) return;
+    if (!wifiConnected) { pendingCommand = ""; pendingVolume = 0; return; }
+    const command = pendingCommand || (pendingVolume ? `volume?steps=${pendingVolume}&step_percent=${volumeStep}` : "");
+    if (!command) return;
+    if (pendingCommand) pendingCommand = ""; else pendingVolume = 0;
+    controlling = true;
+    try {
+      const response = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
+        method: "POST", headers: { "X-Busybar-Control": "1" },
+      });
+      if (stopped) return;
+      if (!response.ok) throw new Error("Spotify control failed");
+      if (command.indexOf("volume?steps=") === 0) {
+        const result = await response.json();
+        if (stopped) return;
+        if (!Number.isInteger(result.volume) || result.volume < 0 || result.volume > 100) throw new Error("Invalid volume response");
+        pendingIndicator = { value: result.volume, frame: result.frame };
+        kickDisplay();
+      }
+    } catch (error) {
+      if (!stopped) { report(error); pendingVolume = 0; }
+    } finally {
+      controlling = false;
+      if (!stopped && (pendingCommand || pendingVolume)) controlTimer = setTimeout(() => { void controls().catch(report); }, 200);
     }
   }
 
@@ -170,9 +206,9 @@ function main() {
     if (event.key === "encoder") {
       if (!url || (event.delta !== 1 && event.delta !== -1)) return;
       pendingVolume = Math.max(-10, Math.min(10, pendingVolume + event.delta));
-      if (!busy) {
-        clearTimeout(timer);
-        timer = setTimeout(() => { void poll().catch(report); }, 200);
+      if (!controlling) {
+        clearTimeout(controlTimer);
+        controlTimer = setTimeout(() => { void controls().catch(report); }, 200);
       }
       return;
     }
@@ -180,16 +216,18 @@ function main() {
     if (event.key === "start" || event.key === "ok") {
       if (!url || pendingCommand || controlling) return;
       pendingCommand = event.key === "ok" ? "next" : "toggle";
-      clearTimeout(timer);
-      if (!busy) void poll().catch(report);
+      clearTimeout(controlTimer);
+      void controls().catch(report);
       return;
     }
     if (event.key !== "back") return;
     stopped = true;
-    pendingCommand = "";
-    pendingVolume = 0;
-    clearTimeout(timer);
-    clearTimeout(volumeTimer);
+    pendingCommand = ""; pendingVolume = 0; pendingTrack = null; pendingIndicator = null;
+    clearTimeout(watchTimer); clearTimeout(controlTimer); clearTimeout(volumeTimer); clearTimeout(displayRetry);
+    if (watching && url) void fetch(url.replace(/\/now-playing$/, "/playback/cancel-wait"), {
+      method: "POST", headers: { "X-Busybar-Control": "1", "X-Busybar-Client": client },
+    }).catch(report);
+    // Pending requests settle; the last input handle is released after this callback.
     setTimeout(unbind, 0);
   });
   async function start() {
@@ -198,8 +236,8 @@ function main() {
     url = bridgeUrl(values?.bridge_url);
     const step = values?.volume_step;
     if (typeof step === "number" && Number.isInteger(step) && step >= 1 && step <= 100) volumeStep = step;
-    if (!url) { await draw("Spotify", "Set PC URL"); return; }
-    await poll();
+    if (!url) { queueTrack("Spotify", "Set PC URL"); return; }
+    await watch();
   }
   void start().catch(report);
 }

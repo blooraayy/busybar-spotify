@@ -134,3 +134,12 @@ on the PC to 16x16 XPM2 with at most 32 colors; never decode full artwork on the
 The CLI discovers `font:` literals only under `src/`. Keep display trees that use
 fonts in `src/` (including `src/volume-display.js`), so their font metrics are
 bundled. Helpers outside `src/` are not scanned for fonts.
+
+## Event subscription lifecycle
+
+The PC reader uses `media-events.cs` for bounded WinRT subscriptions and a coarse
+15-second health check. The device keeps one long poll plus at most one control
+request pending. Never serialize controls behind the waiting subscription or
+allow concurrent display requests. Keep the long-poll timeout below the target
+firmware inactivity limit (three seconds is verified on API 27.14.0). Cancel the
+wait and clear watch, control, overlay and display-retry timers on Back.
