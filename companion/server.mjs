@@ -6,9 +6,10 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { volumeFrame } from './volume-frame.mjs';
 import { coverXpm } from './cover.mjs';
-import { playbackCommand, adjustVolume, parseVolumeRequest } from './control.mjs';
+import { playbackCommand, adjustVolume, parseVolumeRequest, startVolumeWorker, stopVolumeWorker } from './control.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
+startVolumeWorker();
 const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid bridge port.');
 let latest = { state: 'error', title: '', artist: '' };
@@ -77,6 +78,7 @@ function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   control?.abort();
+  stopVolumeWorker();
   feed.close();
   process.exitCode = code;
   lines.close();

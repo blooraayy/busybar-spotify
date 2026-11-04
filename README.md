@@ -275,28 +275,48 @@ in the BUSY Bar web interface. The default is 5 percentage points; the range is
 the system master volume and the BUSY Bar speaker volume are unchanged. It does
 not move Spotify's internal playback slider.
 
-Turns are combined after 200 ms of inactivity, with at most 10 pending steps
+The first turn is sent immediately. Continued turns are combined and sent at most once every 100 ms, with at most 10 pending steps
 (the percentage change depends on the configured step). Volume, next-track and play/pause requests run serially.
-Opposite turns cancel; errors are not retried and Back discards pending changes.
+Display updates are independent of these control requests. Opposite turns cancel; errors are not retried and Back discards pending changes.
 `POST /playback/volume?steps=<n>` uses the same control header and origin checks
 as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
 Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0–100%; it does not alter the mute switch.
+
+The bridge keeps the volume adapter running and compiles it once at startup, avoiding PowerShell startup on every turn. Restart the bridge after editing volume.cs or volume.ps1. The worker blocks while idle and never launches Spotify.
 
 If no Spotify audio session is available, volume commands fail without changing
 any other application or falling back to the system master volume.
 
 ## Volume indicator
 
-After the PC confirms a volume change, the front display briefly shows the
-Sound settings-style green gradient bar, speaker icon and percentage between
-arrows. It disappears after 1.5 seconds and reveals the track again. The PC generates one bounded XPM2 image for the complete indicator. The device
-updates just that image; there is no per-frame network animation. The arrows
-are dimmed at 0 and 100, matching the native settings indicator.
+The app reads the initial Spotify volume with a zero-step control request. Each
+wheel step immediately updates a local preview using the configured percentage,
+without waiting for the PC response or the control throttle. Replies from older
+turns cannot rewind this preview. Once the latest command is confirmed, the
+indicator reconciles to Spotify's actual level. If control fails, the preview is
+hidden and its baseline is discarded rather than presenting an unconfirmed level.
 
-The percentage comes from `BusyBarVolume.Adjust` through the command response;
-it is not estimated from wheel steps. Changing **Volume step (%)** therefore changes both the actual volume and the
-displayed percentage without editing code or rebuilding. Restart the device app
-after saving the setting. The device keeps its default 128 KiB heap. Missing or invalid levels never produce a guessed value.
+The indicator uses persistent canvas widgets: a black background, a gradient
+rectangle, the percentage, two arrows and a speaker icon. The first draw creates
+six stable ids. Normal wheel updates send only the changed fill width and value;
+the speaker and arrow states change only when entering or leaving 0/100. Borders
+are explicitly disabled. A zero level uses a one-pixel black fill because the
+API does not accept zero-width rectangles. The widget ids are cleared together
+when the popup disappears after 1.5 seconds.
+
+Only one display request is in flight. Pending previews coalesce to the latest
+value, and track changes wait behind the popup. Unlike native Settings, drawing
+still goes through the supported local HTTP canvas API; JavaScript cannot call
+the internal LVGL slider directly. The normal font is declared under src so the
+build scanner includes it. The default JavaScript heap remains 128 KiB.
+
+The previous full-image implementation and its packaged images are retained as
+reference resources; the active indicator does not load a full image per turn.
+`node tools/generate-volume-images.mjs` regenerates those reference images.
+
+Changing **Volume step (%)** changes both playback adjustments and the immediate
+preview. Restart the device app after saving the setting. The device keeps its
+default 128 KiB heap.
 
 Design reference: the firmware's read-only
 [sound settings slider](https://github.com/busy-app/busybar-firmware/blob/dev/applications/settings/sound_settings/widgets/slider_view.c).

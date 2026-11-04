@@ -2,10 +2,12 @@ import { device } from "@shared/device";
 import { loadValues } from "@shared/settings";
 import { bridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
 import { row, column, render } from "@busy-app/busy-lib";
-import { volumeElements, VOLUME_IDS } from "./volume-display";
+import { sliderElements, VOLUME_IDS } from "./volume-display";
 import manifest from "./appmeta/manifest.json";
 
 const APP = manifest.id;
+// Minimum spacing between PC volume commands; visual wheel feedback is immediate.
+const VOLUME_UPDATE_MS = 100;
 
 function main() {
   let stopped = false;
@@ -13,6 +15,7 @@ function main() {
   const client = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   let watchTimer = 0;
   let controlTimer = 0;
+  let lastVolumeAt = -VOLUME_UPDATE_MS;
   let volumeTimer = 0;
   let displayRetry = 0;
   let watching = false;
@@ -27,6 +30,8 @@ function main() {
   let lastArtist = "";
   let lastCover = "";
   let shownVolume = -1;
+  let visualVolume = -1;
+  let wheelRevision = 0;
   let hideVolume = false;
   let wifiConnected = false;
   let wifiCheckedAt = 0;
@@ -34,7 +39,7 @@ function main() {
   let wifiRequest = null;
   /** @type {{ title: string, artist: string, cover: string } | null} */
   let pendingTrack = null;
-  /** @type {{ value: number, frame: unknown } | null} */
+  /** @type {{ value: number } | null} */
   let pendingIndicator = null;
   /** @param {unknown} error */
   const report = (error) => console.error(`${APP}: ${error instanceof Error ? error.message : String(error)}`);
@@ -63,11 +68,12 @@ function main() {
     displayBusy = true;
     try {
       // Coalesce to the latest metadata/volume; never queue complete frames.
-      while (!stopped && (pendingIndicator || hideVolume || pendingTrack)) {
+      // Track changes are invisible behind the full-screen indicator; defer them.
+      while (!stopped && (pendingIndicator || hideVolume || (pendingTrack && shownVolume < 0))) {
         if (pendingIndicator) {
           const indicator = pendingIndicator;
           pendingIndicator = null;
-          await showVolume(indicator.value, indicator.frame);
+          await showVolume(indicator.value);
         } else if (hideVolume) {
           await clearVolume();
         } else if (pendingTrack) {
@@ -83,7 +89,10 @@ function main() {
         displayRetry = 0;
         kickDisplay();
       }, 10000);
-    } finally { displayBusy = false; }
+    } finally {
+      displayBusy = false;
+      scheduleVolume();
+    }
   }
   async function clearVolume() {
     clearTimeout(volumeTimer);
@@ -91,13 +100,13 @@ function main() {
     shownVolume = -1;
     hideVolume = false;
   }
-  /** @param {number} value @param {unknown} frame */
-  async function showVolume(value, frame) {
+  /** @param {number} value */
+  async function showVolume(value) {
     if (stopped) return;
     clearTimeout(volumeTimer);
     hideVolume = false;
     if (value !== shownVolume) {
-      await device.DisplayDraw({ application_name: APP, priority: 50, elements: volumeElements(value, frame) });
+      await device.DisplayDraw({ application_name: APP, priority: 50, elements: sliderElements(value, shownVolume) });
       shownVolume = value;
     }
     if (!stopped) volumeTimer = setTimeout(() => { hideVolume = true; kickDisplay(); }, 1500);
@@ -173,12 +182,19 @@ function main() {
     }
   }
 
+  function scheduleVolume() {
+    if (stopped || controlling || controlTimer || !pendingVolume) return;
+    const delay = Math.max(0, Math.min(VOLUME_UPDATE_MS, VOLUME_UPDATE_MS - (Date.now() - lastVolumeAt)));
+    controlTimer = setTimeout(() => { controlTimer = 0; void controls().catch(report); }, delay);
+  }
+
   async function controls() {
     if (stopped || controlling || !url) return;
     if (!wifiConnected) { pendingCommand = ""; pendingVolume = 0; return; }
     const command = pendingCommand || (pendingVolume ? `volume?steps=${pendingVolume}&step_percent=${volumeStep}` : "");
     if (!command) return;
-    if (pendingCommand) pendingCommand = ""; else pendingVolume = 0;
+    const sentRevision = wheelRevision;
+    if (pendingCommand) pendingCommand = ""; else { pendingVolume = 0; lastVolumeAt = Date.now(); }
     controlling = true;
     try {
       const response = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
@@ -190,14 +206,27 @@ function main() {
         const result = await response.json();
         if (stopped) return;
         if (!Number.isInteger(result.volume) || result.volume < 0 || result.volume > 100) throw new Error("Invalid volume response");
-        pendingIndicator = { value: result.volume, frame: result.frame };
-        kickDisplay();
+        // A reply for an older turn must never rewind immediate wheel feedback.
+        if (sentRevision === wheelRevision) {
+          visualVolume = result.volume;
+          if (command.indexOf("steps=0&") < 0) {
+            pendingIndicator = { value: result.volume };
+            kickDisplay();
+          }
+        } else if (visualVolume < 0) {
+          visualVolume = Math.max(0, Math.min(100, result.volume + pendingVolume * volumeStep));
+          pendingIndicator = { value: visualVolume };
+          kickDisplay();
+        }
       }
     } catch (error) {
-      if (!stopped) { report(error); pendingVolume = 0; }
+      if (!stopped) {
+        report(error); pendingVolume = 0; visualVolume = -1;
+        pendingIndicator = null; hideVolume = true; kickDisplay();
+      }
     } finally {
       controlling = false;
-      if (!stopped && (pendingCommand || pendingVolume)) controlTimer = setTimeout(() => { void controls().catch(report); }, 200);
+      scheduleVolume();
     }
   }
 
@@ -205,18 +234,24 @@ function main() {
     if (stopped) return;
     if (event.key === "encoder") {
       if (!url || (event.delta !== 1 && event.delta !== -1)) return;
-      pendingVolume = Math.max(-10, Math.min(10, pendingVolume + event.delta));
-      if (!controlling) {
-        clearTimeout(controlTimer);
-        controlTimer = setTimeout(() => { void controls().catch(report); }, 200);
+      const direction = event.action === "clockwise" ? 1 : event.action === "counterclockwise" ? -1 : event.delta;
+      const nextVolume = Math.max(-10, Math.min(10, pendingVolume + direction));
+      const accepted = nextVolume - pendingVolume;
+      pendingVolume = nextVolume;
+      wheelRevision++;
+      if (visualVolume >= 0) {
+        visualVolume = Math.max(0, Math.min(100, visualVolume + accepted * volumeStep));
+        pendingIndicator = { value: visualVolume };
+        kickDisplay();
       }
+      scheduleVolume();
       return;
     }
     if (event.action !== "short") return;
     if (event.key === "start" || event.key === "ok") {
       if (!url || pendingCommand || controlling) return;
       pendingCommand = event.key === "ok" ? "next" : "toggle";
-      clearTimeout(controlTimer);
+      clearTimeout(controlTimer); controlTimer = 0;
       void controls().catch(report);
       return;
     }
@@ -238,6 +273,11 @@ function main() {
     if (typeof step === "number" && Number.isInteger(step) && step >= 1 && step <= 100) volumeStep = step;
     if (!url) { queueTrack("Spotify", "Set PC URL"); return; }
     await watch();
+    if (!stopped && wifiConnected && !controlling && !pendingVolume && visualVolume < 0) {
+      // Read the initial Spotify level without changing it or showing the popup.
+      pendingCommand = `volume?steps=0&step_percent=${volumeStep}`;
+      await controls();
+    }
   }
   void start().catch(report);
 }

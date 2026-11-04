@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { bridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
 const volumeSource = readFileSync(new URL('../src/volume-display.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
 const volumeContext = { row: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value], stack: (_, children) => children };
-vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, VOLUME_IDS };', volumeContext);
+vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, localVolumeElements, sliderElements, VOLUME_IDS };', volumeContext);
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, failControl=false, holdControl=false }={}) {
@@ -18,14 +18,15 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
  const context={...volumeContext.volumeTools, manifest:{id:'app.test'},bridgeUrl,playbackLines,playbackCover,
-  Date:class extends Date {static now(){return now;}},
+  volumeFrame, Date:class extends Date {static now(){return now;}},
   loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
   device:{WifiStatusGet:async()=>({state:wifi}),DisplayDraw:async frame=>display(()=>frames.push(frame.elements)),DisplayClear:async frame=>display(()=>clears.push(frame.element_ids))},
   fetch:async(url,options)=>{
    if(options?.method==='POST') {
     if(url.endsWith('/cancel-wait')){cancellations.push(url);if(pendingWatch){pendingWatch(response({},204));pendingWatch=null;}return response({},204);}
-    commands.push({url,options});
+    if(url.includes('volume?steps=0&'))return response({ok:true,volume:60,frame:volumeFrame(60)});
+    commands.push({url,options,at:now});
     if(holdControl)return new Promise(resolve=>controlFinish=resolve);
     if(failControl)return response({},503);
     if(url.includes('/volume?'))return response({ok:true,volume:65,frame:volumeFrame(65)});
@@ -99,7 +100,7 @@ test('wheel changes are batched, bounded, configured, and independent from the w
  for(let i=0;i<30;i++)app.input({key:'encoder',action:'clockwise',delta:1});
  await app.advance(200);assert.equal(app.commands.length,1);
  assert.ok(app.commands[0].url.endsWith('volume?steps=10&step_percent=10'));
- assert.equal(app.requests.length,2);assert.equal(app.frames.at(-1)[0].data,volumeFrame(65));
+ assert.equal(app.requests.length,2);assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'65%');
  await app.advance(1500);assert.ok(app.clears.some(ids=>ids.includes('volume')));assert.equal(app.requests.length,2);
 });
 
@@ -138,4 +139,81 @@ test('offline watches back off; missing settings and disconnected Wi-Fi do not s
 test('failed controls are never retried automatically',async()=>{
  const app=launch({failControl:true});await flush();await app.advance(100);app.input({key:'ok',action:'short'});await flush();
  await app.advance(60000);assert.equal(app.commands.length,1);
+});
+
+test('continuous turning sends its first step immediately and keeps updating without waiting for release',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.input({key:'encoder',action:'clockwise',delta:1});await app.advance(0);
+ assert.equal(app.commands.length,1);assert.equal(app.commands[0].at,100);
+ for(let i=0;i<10;i++){await app.advance(40);app.input({key:'encoder',action:'clockwise',delta:1});}
+ assert.equal(app.commands.length,5);
+ for(let i=1;i<app.commands.length;i++)assert.equal(app.commands[i].at-app.commands[i-1].at,100);
+});
+
+test('slow drawing coalesces visual updates without blocking volume commands',async()=>{
+ const app=launch();await flush();await app.advance(100);app.holdNextDraw();
+ app.input({key:'encoder',delta:1});await app.advance(0);
+ assert.equal(app.commands.length,1);
+ for(let i=0;i<6;i++){app.input({key:'encoder',delta:1});await app.advance(100);}
+ assert.ok(app.commands.length>1);
+ app.releaseDraw();await flush();await app.advance(0);
+ assert.equal(app.maxDisplay(),1);
+ app.input({key:'back',action:'short'});await app.advance(0);
+ assert.equal(app.timers.size,0);
+});
+
+
+test('each wheel step draws immediately while the PC has not replied',async()=>{
+ const app=launch({holdControl:true,volumeStep:5});await flush();await app.advance(100);
+ app.input({key:'encoder',delta:1});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'65%');
+ await app.advance(0);
+ app.input({key:'encoder',delta:1});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'70%');
+ app.finishControl({ok:true,volume:65,frame:volumeFrame(65)});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'70%');
+ app.input({key:'encoder',delta:-1});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'65%');
+ app.input({key:'back',action:'short'});await app.advance(0);
+});
+
+
+test('explicit wheel direction takes precedence over an opposite delta sign',async()=>{
+ const app=launch({holdControl:true});await flush();await app.advance(100);
+ app.input({key:'encoder',action:'clockwise',delta:-1});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'65%');
+ await app.advance(0);assert.ok(app.commands[0].url.includes('steps=1&'));
+ app.input({key:'encoder',action:'counterclockwise',delta:1});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='volume-value').text,'60%');
+ app.input({key:'back',action:'short'});await app.advance(0);
+ app.finishControl({ok:true,volume:65});await flush();
+});
+
+
+test('track changes wait behind the volume popup and draw only the latest on hide',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.input({key:'encoder',delta:1});await app.advance(0);
+ const count=app.frames.length;
+ app.push({state:'playing',title:'Hidden one',artist:'Artist'});await flush();
+ await app.advance(100);app.push({state:'playing',title:'Hidden latest',artist:'Artist'});await flush();
+ assert.equal(app.frames.length,count);
+ await app.advance(1500);
+ assert.equal(app.frames.at(-1)[0].text,'Hidden latest');
+ assert.equal(app.maxDisplay(),1);
+ app.input({key:'back',action:'short'});await app.advance(0);
+ assert.equal(app.timers.size,0);
+});
+
+
+test('native slider reuses its widgets and only sends changed properties',()=>{
+ const {sliderElements,VOLUME_IDS}=volumeContext.volumeTools;
+ const first=sliderElements(50,-1);assert.equal(first.length,6);
+ assert.deepEqual([...first.map(e=>e.id)].sort(),[...VOLUME_IDS].sort());
+ const step=sliderElements(55,50);assert.deepEqual([...step.map(e=>e.id)],['volume-fill','volume-value']);
+ assert.equal(step[0].width,40);assert.equal(step[0].border_width,0);
+ assert.equal(sliderElements(55,55).length,0);
+ const muted=sliderElements(0,5);assert.equal(muted.find(e=>e.id==='volume-fill').fill_colors[0],'#000000FF');
+ assert.equal(muted.find(e=>e.id==='volume-left').color,'#808080FF');
+ const max=sliderElements(100,95);assert.equal(max.find(e=>e.id==='volume-right').color,'#808080FF');
+ assert.ok(max.find(e=>e.id==='volume-icon').path.includes('_100_'));
 });
