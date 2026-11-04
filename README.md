@@ -311,3 +311,10 @@ the multi-element implementation reproduced device reboots while commands alone
 and the native Sound settings were stable. A larger JavaScript heap did not help.
 Moving the indicator rendering to the PC avoided the reboots in the repeated test;
 no firmware files were modified. The exact firmware failure was not established.
+
+## App icon
+
+`src/appmeta/icon_front_8x8.png` is the green Spotify icon for the front app menu;
+`icon_back_11x11.png` is the grayscale version for the back display. Both are
+packaged app metadata, with no runtime downloads. They use a pixel-aligned adaptation with opaque dark waves for legibility at
+these sizes, based on the [official Spotify icon asset](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
