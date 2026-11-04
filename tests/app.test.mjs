@@ -5,20 +5,28 @@ import { readFileSync } from 'node:fs';
 import { bridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function launch({ wifi = 'connected', fail = false, configured = true, pending = null } = {}) {
+function launch({ wifi = 'connected', fail = false, configured = true, pending = null, pendingControl = null, failControl = false } = {}) {
   const timers = new Map(); let next = 0; let handler; let unbound = 0; let fetches = 0;
-  const frames = []; const clears = []; const delays = []; let track = { state: 'playing', title: 'Song', artist: 'Artist' };
+  const commands = []; const frames = []; const clears = []; const delays = []; let track = { state: 'playing', title: 'Song', artist: 'Artist' };
   const context = { manifest: { id: 'app.test' }, bridgeUrl, playbackLines, playbackCover,
     loadValues: async () => ({ bridge_url: configured ? 'http://192.168.1.10:8765/now-playing' : '' }),
     row: (_, children) => children, column: (_, children) => children, render: value => value.flat(Infinity),
     device: { WifiStatusGet: async () => ({ state: wifi }), DisplayDraw: async frame => frames.push(frame.elements), DisplayClear: async frame => clears.push(frame.element_ids) },
-    fetch: async () => { fetches++; if (pending) return pending; if (fail) throw Error('offline'); return { ok: true, json: async () => track }; },
+    fetch: async (url, options) => {
+      if (options?.method === 'POST') {
+        commands.push({url, options});
+        if (pendingControl) return pendingControl;
+        if (failControl) return {ok:false};
+        track = {...track, state: track.state === 'playing' ? 'paused' : 'playing'};
+        return {ok:true};
+      }
+      fetches++; if (pending) return pending; if (fail) throw Error('offline'); return { ok: true, json: async () => track }; },
     listen: (_, fn) => { handler = fn; return () => unbound++; },
     setTimeout: (fn, delay) => { const id = ++next; timers.set(id, fn); delays.push(delay); return id; },
     clearTimeout: id => timers.delete(id), console: { error() {} },
   };
   vm.runInNewContext(source, context);
-  return { timers, frames, clears, delays, setTrack: value => { track = value; }, fetches: () => fetches, unbound: () => unbound,
+  return { timers, frames, clears, delays, commands, setTrack: value => { track = value; }, fetches: () => fetches, unbound: () => unbound,
     input: event => handler(event), async tick() { const [id, fn] = timers.entries().next().value; timers.delete(id); fn(); await flush(); } };
 }
 test('metadata, paused, idle, malformed and bounded ASCII text', () => {
@@ -91,4 +99,41 @@ test('thumbnail quantization stays within firmware palette and payload limits', 
  assert.equal(red[1], 'A' + 'B'.repeat(14) + 'A');
  assert.equal(red[2], 'B'.repeat(16));
  assert.equal(red[15], red[0]); assert.equal(red[14], red[1]);
+});
+
+test('Start short toggles Spotify once; press and long do nothing', async () => {
+ const app = launch(); await flush();
+ app.input({key:'start',action:'press'}); app.input({key:'start',action:'long'}); await flush();
+ assert.equal(app.commands.length,0);
+ app.input({key:'start',action:'short'}); await flush();
+ assert.equal(app.commands.length,1); assert.equal(app.commands[0].url,'http://192.168.1.10:8765/playback/toggle');
+ assert.equal(app.frames.at(-1)[0].text,'Paused');
+ app.input({key:'start',action:'short'}); await flush();
+ assert.equal(app.commands.length,2); assert.equal(app.frames.at(-1)[0].text,'Artist');
+});
+
+test('duplicate presses during a command are ignored, and Back prevents further polling', async () => {
+ let finish; const pendingControl = new Promise(resolve => finish = resolve);
+ const app = launch({pendingControl}); await flush();
+ app.input({key:'start',action:'short'}); await flush();
+ app.input({key:'start',action:'short'}); await flush(); assert.equal(app.commands.length,1);
+ app.input({key:'back',action:'short'}); await app.tick();
+ const frames = app.frames.length;
+ finish({ok:true}); await flush(); assert.equal(app.timers.size,0); assert.equal(app.frames.length,frames);
+});
+
+test('a queued Start during a read waits for the serialized poll', async () => {
+ let finish; const pending = new Promise(resolve => finish = resolve);
+ const app = launch({pending}); await flush();
+ app.input({key:'start',action:'short'}); app.input({key:'start',action:'short'});
+ assert.equal(app.commands.length,0);
+ finish({ok:true,json:async()=>({state:'playing',title:'Song',artist:'Artist'})}); await flush();
+ await app.tick(); assert.equal(app.commands.length,1);
+});
+
+test('offline and unconfigured apps do not send commands; failed toggles are not replayed', async () => {
+ const offline=launch({wifi:'disconnected'}); await flush(); offline.input({key:'start',action:'short'}); await flush(); assert.equal(offline.commands.length,0);
+ const unset=launch({configured:false}); await flush(); unset.input({key:'start',action:'short'}); await flush(); assert.equal(unset.commands.length,0);
+ const failed=launch({failControl:true}); await flush(); failed.input({key:'start',action:'short'}); await flush();
+ assert.equal(failed.commands.length,1); await failed.tick(); assert.equal(failed.commands.length,1);
 });

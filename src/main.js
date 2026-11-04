@@ -15,6 +15,9 @@ function main() {
   let lastTitle = "";
   let lastArtist = "";
   let lastCover = "";
+  let busy = false;
+  let pendingToggle = false;
+  let toggling = false;
   /** @param {unknown} error */
   const report = (error) => console.error(`${APP}: ${error instanceof Error ? error.message : String(error)}`);
 
@@ -47,13 +50,28 @@ function main() {
   }
 
   async function poll() {
+    if (stopped || busy) return;
+    busy = true;
     try {
       const wifi = await device.WifiStatusGet();
       if (stopped) return;
       if (wifi.state !== "connected") {
+        pendingToggle = false;
         delay = 30000;
         await draw("Spotify", "No Wi-Fi");
       } else {
+        if (pendingToggle) {
+          pendingToggle = false;
+          toggling = true;
+          try {
+            const control = await fetch(url.replace(/\/now-playing$/, "/playback/toggle"), {
+              method: "POST", headers: { "X-Busybar-Control": "1" },
+            });
+            if (stopped) return;
+            if (!control.ok) throw new Error("Spotify playback control failed");
+          } finally { toggling = false; }
+        }
+        if (stopped) return;
         const response = await fetch(url);
         if (stopped) return;
         if (!response.ok) throw new Error("PC bridge unavailable");
@@ -69,14 +87,24 @@ function main() {
       delay = Math.min(delay * 2, 60000);
       try { await draw("Spotify", "PC offline"); } catch (drawError) { report(drawError); }
     } finally {
+      busy = false;
       // A single chain prevents overlapping network and display requests.
-      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, delay);
+      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, pendingToggle ? 0 : delay);
     }
   }
 
   const unbind = listen("input", (event) => {
-    if (stopped || event.key !== "back" || event.action !== "short") return;
+    if (stopped || event.action !== "short") return;
+    if (event.key === "start") {
+      if (!url || pendingToggle || toggling) return;
+      pendingToggle = true;
+      clearTimeout(timer);
+      if (!busy) void poll().catch(report);
+      return;
+    }
+    if (event.key !== "back") return;
     stopped = true;
+    pendingToggle = false;
     clearTimeout(timer);
     setTimeout(unbind, 0);
   });

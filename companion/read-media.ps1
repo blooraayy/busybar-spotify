@@ -1,4 +1,4 @@
-param([switch]$Once, [switch]$ListSessions)
+param([switch]$Once, [switch]$ListSessions, [switch]$TogglePlayPause)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -15,7 +15,9 @@ function Wait-WinRT($Operation, $ResultType) {
     return $task.Result
 }
 # The native adapter projects WinRT streams into .NET's image decoder.
-Add-Type -Path (Join-Path $PSScriptRoot 'thumbnail.cs') -ReferencedAssemblies System.Drawing
+if (-not $TogglePlayPause) {
+    Add-Type -Path (Join-Path $PSScriptRoot 'thumbnail.cs') -ReferencedAssemblies System.Drawing
+}
 function Read-Cover($Thumbnail) {
     if (-not $Thumbnail) { return '' }
     $random = $null
@@ -42,6 +44,19 @@ do {
         $sessions = @($manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match 'Spotify' })
         $session = $sessions | Where-Object { $_.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing' } | Select-Object -First 1
         if (-not $session) { $session = $sessions | Select-Object -First 1 }
+        if ($TogglePlayPause) {
+            if (-not $session) { throw 'No Spotify media session' }
+            $expected = if ($session.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') { 'Paused' } else { 'Playing' }
+            $accepted = Wait-WinRT ($session.TryTogglePlayPauseAsync()) ([bool])
+            if (-not $accepted) { throw 'Spotify rejected playback control' }
+            # Acceptance precedes the state change; wait briefly without reissuing it.
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                if ($session.GetPlaybackInfo().PlaybackStatus.ToString() -eq $expected) { break }
+                Start-Sleep -Milliseconds 100
+            }
+            @{ ok = $true; state = $session.GetPlaybackInfo().PlaybackStatus.ToString().ToLowerInvariant() } | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
+            exit
+        }
         if ($session) {
             $media = Wait-WinRT ($session.TryGetMediaPropertiesAsync()) $propertiesType
             $status = $session.GetPlaybackInfo().PlaybackStatus.ToString()

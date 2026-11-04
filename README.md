@@ -155,7 +155,7 @@ tool reads aliases from that filename. TypeScript is a development checker only;
 `types/env.d.ts` describes firmware globals and is not executable app code.
 
 The app displays Spotify track metadata from the Windows companion. A short Back
-press stops all polling and exits. Playback controls are not implemented.
+press stops all polling and exits. A short Start press toggles Spotify playback through the Windows companion.
 
 CLI 0.6.0 generates Windows font-map imports with backslashes. The version is pinned
 and `tools/patch-busy-cli.mjs` applies an idempotent fix after install and before
@@ -243,3 +243,17 @@ Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"
 
 The stop command terminates only this checkout's bridge and its media-reader
 child process, avoiding orphaned listeners on port 8765.
+
+## Play / pause
+
+A short press of the BUSY Bar **Start** button pauses or resumes the Spotify
+Windows media session. The companion exposes `POST /playback/toggle` for this;
+commands require `X-Busybar-Control: 1` and browser-origin requests are rejected.
+It uses Windows `TryTogglePlayPauseAsync`, not Spotify's Premium Web API. Spotify
+must be open and its Windows media integration enabled. The bridge is intended
+for a trusted LAN; reachable local clients can control playback through it.
+
+Only one toggle can be pending; repeated presses while it is running are ignored.
+A command is never retried automatically, to avoid accidentally toggling twice.
+The device refreshes metadata after a successful command. A short Back press
+cancels queued commands and polling; an already-sent command may still complete.

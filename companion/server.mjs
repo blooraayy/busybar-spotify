@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { coverXpm } from './cover.mjs';
+import { togglePlayback } from './control.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
 const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
@@ -11,6 +12,7 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Inv
 let latest = { state: 'error', title: '', artist: '' };
 let updated = 0;
 let lastRgb = ''; let cover = '';
+let control = null;
 const reader = spawn('powershell.exe', [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
   '-File', fileURLToPath(new URL('./read-media.ps1', import.meta.url)),
@@ -28,6 +30,21 @@ lines.on('line', (line) => {
 });
 reader.stderr.on('data', (data) => process.stderr.write(data));
 const server = createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/playback/toggle') {
+    // Browsers cannot submit controls with a cross-origin form or simple fetch.
+    if (req.headers.origin || req.headers['x-busybar-control'] !== '1') { res.writeHead(403).end(); return; }
+    if (control) { res.writeHead(409).end(); return; }
+    control = new AbortController();
+    void togglePlayback(control.signal).then(state => {
+      if (state === 'playing' || state === 'paused') latest = { ...latest, state };
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end('{"ok":true}');
+    }).catch(() => {
+      console.error('busybar-spotify: playback control failed');
+      if (!res.destroyed) res.writeHead(503).end();
+    }).finally(() => { control = null; });
+    return;
+  }
   if (req.method !== 'GET' || req.url !== '/now-playing') { res.writeHead(404).end(); return; }
   const current = Date.now() - updated < 20000 ? latest : { state: 'error', title: '', artist: '' };
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -40,6 +57,7 @@ let stopping = false;
 function stop(code = 0) {
   if (stopping) return;
   stopping = true;
+  control?.abort();
   process.exitCode = code;
   lines.close();
   reader.kill();
