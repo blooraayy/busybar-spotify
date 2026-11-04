@@ -68,7 +68,7 @@ test('cover updates independently, disappears once, and leaves text at x=18', as
  const { coverXpm } = await import('../companion/cover.mjs');
  const cover = coverXpm('ff0000'.repeat(256));
  assert.equal(playbackCover({state:'playing', cover}), cover);
- assert.equal(playbackCover({state:'playing', cover:cover.replace('16 16 1 1','72 16 1 1')}), '');
+ assert.equal(playbackCover({state:'playing', cover:cover.replace(/16 16 \d+ 1/,'72 16 1 1')}), '');
  assert.equal(playbackCover({state:'idle', cover}), '');
  const app = launch(); await flush();
  assert.ok(app.frames[0].every(element => element.x === 18 && element.width === 54));
@@ -86,4 +86,9 @@ test('thumbnail quantization stays within firmware palette and payload limits', 
  const rgb = Array.from({length:768}, (_,i) => (i % 256).toString(16).padStart(2,'0')).join('');
  const cover = coverXpm(rgb);
  assert.ok(cover.length < 900); assert.equal(playbackCover({state:'paused', cover}), cover);
+ const red = coverXpm('ff0000'.repeat(256)).split('\n').slice(-16);
+ assert.equal(red[0], 'AA' + 'B'.repeat(12) + 'AA');
+ assert.equal(red[1], 'A' + 'B'.repeat(14) + 'A');
+ assert.equal(red[2], 'B'.repeat(16));
+ assert.equal(red[15], red[0]); assert.equal(red[14], red[1]);
 });

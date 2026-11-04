@@ -9,12 +9,18 @@ export function coverXpm(rgb) {
     histogram.set(key, { color, count: (histogram.get(key)?.count || 0) + 1 });
     pixels.push(color);
   }
-  const palette = [...histogram.values()].sort((a, b) => b.count - a.count).slice(0, 32).map(entry => entry.color);
+  // Reserve black for a subtle two-pixel corner radius against the screen.
+  const palette = [[0, 0, 0], ...[...histogram.values()]
+    .filter(entry => entry.color.some(channel => channel !== 0))
+    .sort((a, b) => b.count - a.count).slice(0, 31).map(entry => entry.color)];
   const symbols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef';
   const rows = [];
   for (let y = 0; y < 16; y++) {
     let row = '';
     for (let x = 0; x < 16; x++) {
+      const edgeX = Math.min(x, 15 - x);
+      const edgeY = Math.min(y, 15 - y);
+      if (edgeX + edgeY < 2) { row += symbols[0]; continue; }
       const pixel = pixels[y * 16 + x];
       let nearest = 0; let distance = Infinity;
       for (let i = 0; i < palette.length; i++) {
