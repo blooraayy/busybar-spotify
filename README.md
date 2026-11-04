@@ -265,3 +265,20 @@ A short press of the encoder's **OK** button requests the next Spotify track via
 OK does not skip tracks. Next and play/pause share one pending command slot;
 presses during an active command are ignored and failed skips are not retried.
 The Windows media reader picks up the new title and cover on its next update.
+
+## Volume wheel
+
+Turn the encoder clockwise to raise the Spotify audio-session volume and
+counterclockwise to lower it, by 2 percentage points per detent. This adjusts only Spotify in the Windows per-app mixer; other applications,
+the system master volume and the BUSY Bar speaker volume are unchanged. It does
+not move Spotify's internal playback slider.
+
+Turns are combined after 200 ms of inactivity, with at most 10 pending steps
+(20 percentage points). Volume, next-track and play/pause requests run serially.
+Opposite turns cancel; errors are not retried and Back discards pending changes.
+`POST /playback/volume?steps=<n>` uses the same control header and origin checks
+as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
+Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0–100%; it does not alter the mute switch.
+
+If no Spotify audio session is available, volume commands fail without changing
+any other application or falling back to the system master volume.

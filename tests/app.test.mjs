@@ -153,3 +153,40 @@ test('next track shares command serialization and is never retried after failure
  assert.equal(app.commands.length,1);
  finish({ok:false}); await flush(); await app.tick(); assert.equal(app.commands.length,1);
 });
+
+test('encoder batches turns and clamps the accumulated volume change', async () => {
+ const app=launch(); await flush();
+ for(let i=0;i<30;i++) app.input({key:'encoder',action:'clockwise',delta:1});
+ assert.equal(app.commands.length,0); assert.equal(app.timers.size,1);
+ await app.tick(); assert.equal(app.commands[0].url,'http://192.168.1.10:8765/playback/volume?steps=10');
+ app.input({key:'encoder',action:'counterclockwise',delta:-1}); await app.tick();
+ assert.equal(app.commands[1].url,'http://192.168.1.10:8765/playback/volume?steps=-1');
+});
+
+test('opposite turns cancel, and Back clears a pending volume update', async () => {
+ const app=launch(); await flush();
+ app.input({key:'encoder',action:'clockwise',delta:1}); app.input({key:'encoder',action:'counterclockwise',delta:-1});
+ await app.tick(); assert.equal(app.commands.length,0);
+ app.input({key:'encoder',action:'clockwise',delta:1}); app.input({key:'back',action:'short'});
+ await app.tick(); assert.equal(app.commands.length,0); assert.equal(app.timers.size,0);
+});
+
+test('volume changes arriving during a command remain bounded and serialized', async () => {
+ let finish; const pendingControl=new Promise(resolve=>finish=resolve);
+ const app=launch({pendingControl}); await flush();
+ app.input({key:'start',action:'short'}); await flush();
+ for(let i=0;i<4;i++) app.input({key:'encoder',action:'clockwise',delta:1});
+ assert.equal(app.commands.length,1);
+ finish({ok:true}); await flush(); await app.tick();
+ assert.equal(app.commands.length,2); assert.ok(app.commands[1].url.endsWith('volume?steps=4'));
+});
+
+test('failed volume adjustments are not replayed', async () => {
+ const app=launch({failControl:true}); await flush();
+ app.input({key:'encoder',action:'counterclockwise',delta:-1}); await app.tick();
+ await app.tick(); assert.equal(app.commands.length,1);
+ const {adjustVolume}=await import('../companion/control.mjs');
+ await assert.rejects(adjustVolume(0),/Invalid volume steps/);
+ await assert.rejects(adjustVolume(11),/Invalid volume steps/);
+ await assert.rejects(adjustVolume(1.5),/Invalid volume steps/);
+});

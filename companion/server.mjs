@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { coverXpm } from './cover.mjs';
-import { playbackCommand } from './control.mjs';
+import { playbackCommand, adjustVolume } from './control.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
 const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
@@ -30,12 +30,14 @@ lines.on('line', (line) => {
 });
 reader.stderr.on('data', (data) => process.stderr.write(data));
 const server = createServer((req, res) => {
-  if (req.method === 'POST' && (req.url === '/playback/toggle' || req.url === '/playback/next')) {
+  const volume = /^\/playback\/volume\?steps=(-?(?:[1-9]|10))$/.exec(req.url || '');
+  if (req.method === 'POST' && (volume || req.url === '/playback/toggle' || req.url === '/playback/next')) {
     // Browsers cannot submit controls with a cross-origin form or simple fetch.
     if (req.headers.origin || req.headers['x-busybar-control'] !== '1') { res.writeHead(403).end(); return; }
     if (control) { res.writeHead(409).end(); return; }
     control = new AbortController();
-    void playbackCommand(req.url === '/playback/next' ? 'next' : 'toggle', control.signal).then(state => {
+    const operation = volume ? adjustVolume(Number(volume[1]), control.signal) : playbackCommand(req.url === '/playback/next' ? 'next' : 'toggle', control.signal);
+    void operation.then(state => {
       if (state === 'playing' || state === 'paused') latest = { ...latest, state };
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end('{"ok":true}');

@@ -18,6 +18,7 @@ function main() {
   let busy = false;
   let pendingCommand = "";
   let controlling = false;
+  let pendingVolume = 0;
   /** @param {unknown} error */
   const report = (error) => console.error(`${APP}: ${error instanceof Error ? error.message : String(error)}`);
 
@@ -57,12 +58,14 @@ function main() {
       if (stopped) return;
       if (wifi.state !== "connected") {
         pendingCommand = "";
+        pendingVolume = 0;
         delay = 30000;
         await draw("Spotify", "No Wi-Fi");
       } else {
-        if (pendingCommand) {
-          const command = pendingCommand;
-          pendingCommand = "";
+        if (pendingCommand || pendingVolume) {
+          const command = pendingCommand || `volume?steps=${pendingVolume}`;
+          if (pendingCommand) pendingCommand = "";
+          else pendingVolume = 0;
           controlling = true;
           try {
             const control = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
@@ -85,17 +88,28 @@ function main() {
     } catch (error) {
       if (stopped) return;
       report(error);
+      pendingVolume = 0;
       delay = Math.min(delay * 2, 60000);
       try { await draw("Spotify", "PC offline"); } catch (drawError) { report(drawError); }
     } finally {
       busy = false;
       // A single chain prevents overlapping network and display requests.
-      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, pendingCommand ? 0 : delay);
+      if (!stopped) timer = setTimeout(() => { void poll().catch(report); }, pendingCommand ? 0 : pendingVolume ? 200 : delay);
     }
   }
 
   const unbind = listen("input", (event) => {
-    if (stopped || event.action !== "short") return;
+    if (stopped) return;
+    if (event.key === "encoder") {
+      if (!url || (event.delta !== 1 && event.delta !== -1)) return;
+      pendingVolume = Math.max(-10, Math.min(10, pendingVolume + event.delta));
+      if (!busy) {
+        clearTimeout(timer);
+        timer = setTimeout(() => { void poll().catch(report); }, 200);
+      }
+      return;
+    }
+    if (event.action !== "short") return;
     if (event.key === "start" || event.key === "ok") {
       if (!url || pendingCommand || controlling) return;
       pendingCommand = event.key === "ok" ? "next" : "toggle";
@@ -106,6 +120,7 @@ function main() {
     if (event.key !== "back") return;
     stopped = true;
     pendingCommand = "";
+    pendingVolume = 0;
     clearTimeout(timer);
     setTimeout(unbind, 0);
   });
