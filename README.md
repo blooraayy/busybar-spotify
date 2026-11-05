@@ -389,12 +389,13 @@ Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi do
 
 ## Track progress
 
-The progress indicator occupies two rows, y=14..15. Only the elapsed portion
+The progress indicator occupies one row, y=15. Only the elapsed portion
 is visible, growing from left to right with a green gradient and pale playhead;
 there is no visible border or unplayed rail. Its 52-pixel range is x=19..70,
-with a black backing at x=18..71. The title uses small at y=0 and the artist
-tiny at y=7. The title moves down two pixels from the compact layout; the
-artist moves down one, preserving the blank row above progress. The cover stays at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
+with a black backing at x=18..71. The title uses small at y=-1 and the artist
+tiny at y=8. Native ink measured with Agjpqy occupies title rows 1..7 and artist
+rows 9..13, including descenders. Row 8 separates title/artist; row 14 separates
+artist/progress. These native sizes fit both explicit one-pixel gaps. The cover stays at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
 PC subscribes to TimelinePropertiesChanged and retains only the current anchor.
 Normal timeline ticks do not wake the device; state/duration changes and seeks
 of at least 1.5 seconds do. Metadata snapshots include current position_ms and
@@ -409,7 +410,7 @@ failure freezes it until recovery. Back clears the timer. The default 128 KiB
 heap and the existing firmware API version remain unchanged.
 
 
-The fill and playhead are both two pixels high and update together only at
+The fill and playhead are both one pixel high and update together only at
 visible pixel boundaries. Styling adds no polling or animation timer. At zero
 progress all pixels are black, and all progress ids are cleared together when
 timing becomes unavailable.

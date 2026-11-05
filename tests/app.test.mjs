@@ -280,8 +280,8 @@ test('a timeout on the selected bridge preserves metadata but gates controls unt
 test('progress advances only at pixel boundaries with no extra metadata requests',async()=>{
  const app=launch();await flush();await app.advance(100);
  app.push({state:'playing',title:'Timed song',artist:'Artist',position_ms:0,duration_ms:520000});await flush();
- const bar=app.frames.at(-1);assert.equal(bar[0].id,'progress-bg');assert.equal(bar[0].y,14);
- assert.equal(bar[0].x,18);assert.equal(bar[0].height,2);assert.equal(bar[1].fill_colors[0],'#000000FF');
+ const bar=app.frames.at(-1);assert.equal(bar[0].id,'progress-bg');assert.equal(bar[0].y,15);
+ assert.equal(bar[0].x,18);assert.equal(bar[0].height,1);assert.equal(bar[1].fill_colors[0],'#000000FF');
  await app.advance(100);const count=app.frames.length, requests=app.requests.length;
  await app.advance(9899);assert.equal(app.frames.length,count);
  await app.advance(1);assert.equal(app.frames.length,count+1);assert.equal(app.frames.at(-1).length,2);
@@ -299,5 +299,21 @@ test('pause, seek, missing duration and the volume popup update progress without
  await app.advance(1000);assert.equal(app.frames.length,covered);
  await app.advance(1000);app.push({state:'playing',title:'No timeline',artist:'Artist'});await flush();
  assert.ok(app.clears.some(ids=>ids.includes('progress-bg')));
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+
+test('native text layout reserves exactly one blank row after descenders',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.push({state:'playing',title:'Agjpqy',artist:'Agjpqy',position_ms:1000,duration_ms:520000});await flush();
+ const elements=app.frames.flat();
+ const title=elements.findLast(e=>e.id==='title'), artist=elements.findLast(e=>e.id==='status');
+ // Native firmware 1.3.1 measurements for these glyphs, independently captured
+ // from /screen: small ink 2..8, tiny ink 1..5, relative to their label y.
+ const ink={small:{top:2,bottom:8},tiny:{top:1,bottom:5}};
+ assert.equal(artist.y+ink[artist.font].top-(title.y+ink[title.font].bottom)-1,1);
+ const progress=elements.findLast(e=>e.id==='progress-bg');
+ assert.equal(progress.y-(artist.y+ink[artist.font].bottom)-1,1);
+ assert.ok(title.y+ink[title.font].top>=0);
  app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });

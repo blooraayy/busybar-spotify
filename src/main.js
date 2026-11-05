@@ -168,11 +168,12 @@ function main() {
     const elements = render(row({ gap: 2, align: "start" }, cover ? [
       { type: "xpmbitmap", id: "cover", data: cover, width: 16, height: 16 }, text,
     ] : [text]));
-    // Lower the title by two pixels; keep the artist one pixel above progress.
-    // The cover and the two-pixel progress indicator retain their positions.
+    // Measured native ink, including g/j/p/q/y: small = rows 2..8, tiny = 1..5.
+    // Place title ink at 1..7 and artist ink at 9..13; rows 8 and 14 stay blank.
+    // The cover stays fixed; the one-pixel progress indicator occupies row 15.
     for (const element of elements) {
       element.x = element.id === "cover" ? 0 : 18;
-      element.y = element.id === "title" ? 0 : 7;
+      element.y = element.id === "title" ? -1 : 8;
       if (element.id === "cover") element.y = 0;
     }
     const changed = elements.filter((element) => element.id === "cover" ? cover !== lastCover : element.id === "title" ? title !== lastTitle : artist !== lastArtist);
