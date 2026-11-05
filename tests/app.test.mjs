@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-import { bridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
+import { bridgeUrl, selectedBridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
 const volumeSource = readFileSync(new URL('../src/volume-display.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
 const volumeContext = { row: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value], stack: (_, children) => children };
 vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, localVolumeElements, sliderElements, VOLUME_IDS };', volumeContext);
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, failControl=false, holdControl=false }={}) {
+function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, failControl=false, holdControl=false, addresses=null, failHosts=[] }={}) {
  let now=0, next=0, handler, revision=0, unbound=0, pendingWatch=null, controlFinish=null;
  let track={state:'playing',title:'Song',artist:'Artist'};
  let holdDraw=false, drawFinish=null, inDisplay=0, maxDisplay=0;
@@ -17,9 +17,9 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  const response=(data=track,status=200,tag=`"${revision}"`)=>({ok:status>=200&&status<300,status,headers:{get:name=>name==='ETag'?tag:name==='X-Busybar-Events'?'1':null},json:async()=>data});
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
- const context={...volumeContext.volumeTools, manifest:{id:'app.test'},bridgeUrl,playbackLines,playbackCover,
+ const context={...volumeContext.volumeTools, manifest:{id:'app.test'},bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
   volumeFrame, Date:class extends Date {static now(){return now;}},
-  loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep}),
+  loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep,...addresses}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
   device:{WifiStatusGet:async()=>({state:wifi}),DisplayDraw:async frame=>display(()=>frames.push(frame.elements)),DisplayClear:async frame=>display(()=>clears.push(frame.element_ids))},
   fetch:async(url,options)=>{
@@ -33,7 +33,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
     push({...track,state:track.state==='playing'?'paused':'playing',title:url.endsWith('/next')?'Next song':track.title});
     return response({ok:true});
    }
-   requests.push({url,options});if(fail)throw Error('offline');
+   requests.push({url,options});if(fail || failHosts.some(host=>url.includes(host)))throw Error('offline');
    if(options?.headers?.['If-None-Match']===`"${revision}"`)return new Promise(resolve=>pendingWatch=resolve);
    return response();
   },
@@ -216,4 +216,30 @@ test('native slider reuses its widgets and only sends changed properties',()=>{
  assert.equal(muted.find(e=>e.id==='volume-left').color,'#808080FF');
  const max=sliderElements(100,95);assert.equal(max.find(e=>e.id==='volume-right').color,'#808080FF');
  assert.ok(max.find(e=>e.id==='volume-icon').path.includes('_100_'));
+});
+
+
+test('manual selection defaults to legacy address and never substitutes another slot',()=>{
+ assert.equal(selectedBridgeUrl({bridge_url:'http://pc1:8765/now-playing'}),'http://pc1:8765/now-playing');
+ assert.equal(selectedBridgeUrl({bridge_selection:'2',bridge_url:'http://pc1:8765/now-playing',bridge_url_2:'http://pc2:8765/now-playing'}),'http://pc2:8765/now-playing');
+ assert.equal(selectedBridgeUrl({bridge_selection:'3',bridge_url_3:'http://pc3:8765/now-playing'}),'http://pc3:8765/now-playing');
+ for(const selection of ['2','3','bad'])assert.equal(selectedBridgeUrl({bridge_selection:selection,bridge_url:'http://pc1:8765/now-playing'}),'');
+ assert.equal(selectedBridgeUrl(null),'');
+});
+test('selected bridge receives metadata, controls and cancellation',async()=>{
+ const app=launch({addresses:{bridge_selection:'2',bridge_url_2:'http://pc2:8765/now-playing'}});
+ await flush();await app.advance(100);assert.ok(app.requests.every(r=>r.url.includes('pc2')));
+ app.input({key:'ok',action:'short'});await flush();assert.ok(app.commands[0].url.includes('pc2'));
+ await app.advance(100);app.input({key:'back',action:'short'});await app.advance(0);
+ assert.ok(app.cancellations[0].includes('pc2'));assert.equal(app.timers.size,0);
+});
+test('unavailable selected bridge retries itself and never contacts other saved PCs',async()=>{
+ const app=launch({addresses:{bridge_selection:'2',bridge_url_2:'http://pc2:8765/now-playing',bridge_url_3:'http://pc3:8765/now-playing'},fail:true});
+ await flush();await app.advance(10000);await app.advance(20000);await app.advance(40000);
+ assert.equal(app.requests.length,4);assert.ok(app.requests.every(r=>r.url.includes('pc2')));
+ app.input({key:'back',action:'short'});await app.advance(0);await app.advance(60000);assert.equal(app.requests.length,4);
+});
+test('empty selected slot shows setup message without contacting another PC',async()=>{
+ const app=launch({addresses:{bridge_selection:'3'}});await flush();
+ assert.equal(app.requests.length,0);assert.equal(app.frames[0][1].text,'Set PC URL');
 });

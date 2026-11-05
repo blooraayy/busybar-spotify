@@ -280,7 +280,7 @@ The first turn is sent immediately. Continued turns are combined and sent at mos
 Display updates are independent of these control requests. Opposite turns cancel; errors are not retried and Back discards pending changes.
 `POST /playback/volume?steps=<n>` uses the same control header and origin checks
 as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
-Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0–100%; it does not alter the mute switch.
+Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0ï¿½100%; it does not alter the mute switch.
 
 The bridge keeps the volume adapter running and compiles it once at startup, avoiding PowerShell startup on every turn. Restart the bridge after editing volume.cs or volume.ps1. The worker blocks while idle and never launches Spotify.
 
@@ -369,3 +369,7 @@ Title and artist are published before thumbnail decoding. Changes normally
 arrive on the next Windows event plus network/display processing, rather than
 waiting for a fixed refresh interval. No hard latency guarantee is made for
 Spotify/Windows or a disconnected network.
+
+## Multiple PC addresses
+
+Save up to three full PC URLs in Bridge URL 1, Bridge URL 2 and Bridge URL 3, for example http://192.168.1.200:8765/now-playing. Choose Bridge 1, Bridge 2 or Bridge 3 in the Active bridge dropdown, then restart the device app. Only the chosen address is used; connection failures retry that same PC with 10-60 seconds backoff and never switch to another saved address. An empty or invalid selected slot shows Set PC URL. Existing settings default to Bridge 1; saved URLs are preserved (settings version 1).

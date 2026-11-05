@@ -1,6 +1,6 @@
 import { device } from "@shared/device";
 import { loadValues } from "@shared/settings";
-import { bridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
+import { selectedBridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
 import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
 import manifest from "./appmeta/manifest.json";
@@ -12,6 +12,7 @@ const VOLUME_UPDATE_MS = 100;
 function main() {
   let stopped = false;
   let url = "";
+  let bridgeReady = false;
   const client = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   let watchTimer = 0;
   let controlTimer = 0;
@@ -167,11 +168,20 @@ function main() {
         queueTrack(title, artist, playbackCover(data));
         lastEtag = response.headers?.get("ETag") || "";
       }
+      bridgeReady = true;
       retryDelay = 10000;
     } catch (error) {
       if (stopped) return;
       report(error);
       wifiConnected = false;
+      bridgeReady = false;
+      pendingCommand = "";
+      pendingVolume = 0;
+      visualVolume = -1;
+      wheelRevision++;
+      pendingIndicator = null;
+      hideVolume = true;
+      kickDisplay();
       lastEtag = "";
       queueTrack("Spotify", "PC offline");
       nextDelay = retryDelay;
@@ -190,17 +200,19 @@ function main() {
 
   async function controls() {
     if (stopped || controlling || !url) return;
-    if (!wifiConnected) { pendingCommand = ""; pendingVolume = 0; return; }
+    if (!wifiConnected || !bridgeReady) { pendingCommand = ""; pendingVolume = 0; return; }
     const command = pendingCommand || (pendingVolume ? `volume?steps=${pendingVolume}&step_percent=${volumeStep}` : "");
     if (!command) return;
     const sentRevision = wheelRevision;
+    const controlUrl = url;
     if (pendingCommand) pendingCommand = ""; else { pendingVolume = 0; lastVolumeAt = Date.now(); }
     controlling = true;
     try {
-      const response = await fetch(url.replace(/\/now-playing$/, `/playback/${command}`), {
+      const response = await fetch(controlUrl.replace(/\/now-playing$/, `/playback/${command}`), {
         method: "POST", headers: { "X-Busybar-Control": "1" },
       });
       if (stopped) return;
+      if (url !== controlUrl || !bridgeReady) return;
       if (!response.ok) throw new Error("Spotify control failed");
       if (command.indexOf("volume?steps=") === 0) {
         const result = await response.json();
@@ -233,7 +245,7 @@ function main() {
   const unbind = listen("input", (event) => {
     if (stopped) return;
     if (event.key === "encoder") {
-      if (!url || (event.delta !== 1 && event.delta !== -1)) return;
+      if (!url || !bridgeReady || (event.delta !== 1 && event.delta !== -1)) return;
       const direction = event.action === "clockwise" ? 1 : event.action === "counterclockwise" ? -1 : event.delta;
       const nextVolume = Math.max(-10, Math.min(10, pendingVolume + direction));
       const accepted = nextVolume - pendingVolume;
@@ -249,7 +261,7 @@ function main() {
     }
     if (event.action !== "short") return;
     if (event.key === "start" || event.key === "ok") {
-      if (!url || pendingCommand || controlling) return;
+      if (!url || !bridgeReady || pendingCommand || controlling) return;
       pendingCommand = event.key === "ok" ? "next" : "toggle";
       clearTimeout(controlTimer); controlTimer = 0;
       void controls().catch(report);
@@ -268,7 +280,7 @@ function main() {
   async function start() {
     const values = await loadValues();
     if (stopped) return;
-    url = bridgeUrl(values?.bridge_url);
+    url = selectedBridgeUrl(values);
     const step = values?.volume_step;
     if (typeof step === "number" && Number.isInteger(step) && step >= 1 && step <= 100) volumeStep = step;
     if (!url) { queueTrack("Spotify", "Set PC URL"); return; }
