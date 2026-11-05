@@ -400,8 +400,15 @@ duration_ms, adjusted on the PC so device/PC clock differences do not matter.
 
 The device estimates elapsed playback locally between updates and schedules only
 the next visible pixel boundary (at least one second apart), not per-frame polling.
-Paused/finished tracks have no progress timer. The two stable progress element ids
+Paused/finished tracks have no progress timer. The three stable progress element ids
 are serialized with all display updates; volume takes priority. Missing duration,
 idle/error states or confirmed disconnection remove the line. A transient bridge
 failure freezes it until recovery. Back clears the timer. The default 128 KiB
 heap and the existing firmware API version remain unchanged.
+
+
+The progress rail uses a muted green background, a dark-to-bright green fill and
+a pale playhead marking the current position. All three elements stay one pixel
+high, below the artist. The playhead and fill update together at the same pixel
+boundary; styling adds no network polling or animation timer. All progress ids
+are cleared together when timing is unavailable.

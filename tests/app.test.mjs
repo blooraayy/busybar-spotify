@@ -1,5 +1,5 @@
 import {playbackProgress, progressPixels} from '../shared/progress.js';
-import {progressElements} from '../src/progress-display.js';
+import {progressElements,PROGRESS_IDS} from '../src/progress-display.js';
 import { volumeFrame } from '../companion/volume-frame.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  const response=(data=track,status=200,tag=`"${revision}"`)=>({ok:status>=200&&status<300,status,headers:{get:name=>name==='ETag'?tag:name==='X-Busybar-Events'?'1':null},json:async()=>data});
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
- const context={...volumeContext.volumeTools, manifest:{id:'app.test'},playbackProgress,progressPixels,progressElements,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
+ const context={...volumeContext.volumeTools, manifest:{id:'app.test'},playbackProgress,progressPixels,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
   volumeFrame, Date:class extends Date {static now(){return now;}},
   loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep,...addresses}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
@@ -281,20 +281,20 @@ test('progress advances only at pixel boundaries with no extra metadata requests
  const app=launch();await flush();await app.advance(100);
  app.push({state:'playing',title:'Timed song',artist:'Artist',position_ms:0,duration_ms:540000});await flush();
  const bar=app.frames.at(-1);assert.equal(bar[0].id,'progress-bg');assert.equal(bar[0].y,15);
- assert.equal(bar[0].x,18);assert.equal(bar[0].height,1);assert.equal(bar[1].fill_colors[0],'#203028FF');
+ assert.equal(bar[0].x,18);assert.equal(bar[0].height,1);assert.equal(bar[1].fill_colors[0],'#17251EFF');
  await app.advance(100);const count=app.frames.length, requests=app.requests.length;
  await app.advance(9899);assert.equal(app.frames.length,count);
- await app.advance(1);assert.equal(app.frames.length,count+1);assert.equal(app.frames.at(-1).length,1);
+ await app.advance(1);assert.equal(app.frames.length,count+1);assert.equal(app.frames.at(-1).length,2);
  assert.equal(app.requests.length,requests);assert.equal(app.maxDisplay(),1);
  app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });
 test('pause, seek, missing duration and the volume popup update progress without queues',async()=>{
  const app=launch();await flush();await app.advance(100);
  app.push({state:'paused',title:'Timed song',artist:'Artist',position_ms:270000,duration_ms:540000});await flush();
- assert.equal(app.frames.at(-1).at(-1).width,27);
+ assert.equal(app.frames.at(-1).find(e=>e.id==='progress-fill').width,27);
  const count=app.frames.length;await app.advance(30000);assert.equal(app.frames.length,count);
  app.push({state:'playing',title:'Timed song',artist:'Artist',position_ms:400000,duration_ms:540000});await flush();
- assert.equal(app.frames.at(-1).at(-1).width,40);
+ assert.equal(app.frames.at(-1).find(e=>e.id==='progress-fill').width,40);
  app.input({key:'encoder',delta:1});await app.advance(0);const covered=app.frames.length;
  await app.advance(1000);assert.equal(app.frames.length,covered);
  await app.advance(1000);app.push({state:'playing',title:'No timeline',artist:'Artist'});await flush();

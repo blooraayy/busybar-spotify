@@ -4,7 +4,7 @@ import { selectedBridgeUrl, playbackLines, playbackCover } from "@shared/now-pla
 import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
 import { playbackProgress, progressPixels } from "@shared/progress";
-import { progressElements } from "./progress-display";
+import { progressElements, PROGRESS_IDS } from "./progress-display";
 import manifest from "./appmeta/manifest.json";
 
 const APP = manifest.id;
@@ -118,7 +118,7 @@ function main() {
     if (pixels === shownProgress) return;
     try {
       if (pixels < 0) {
-        if (shownProgress >= 0) await device.DisplayClear({application_name: APP, element_ids: ["progress-bg", "progress-fill"]});
+        if (shownProgress >= 0) await device.DisplayClear({application_name: APP, element_ids: PROGRESS_IDS});
       } else await device.DisplayDraw({application_name: APP, priority: 50, elements: progressElements(pixels, shownProgress < 0)});
       shownProgress = pixels;
     } catch (error) { progressPending = true; throw error; }
