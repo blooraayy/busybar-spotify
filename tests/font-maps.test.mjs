@@ -8,5 +8,5 @@ test('the real build scanner includes the track fonts', () => {
   const plugin = fontMaps({root, app:fileURLToPath(new URL('../src', import.meta.url))});
   plugin.buildStart.call({warn(message) { throw new Error(message); }});
   const generated = plugin.load('\0#font-maps');
-  for (const font of ['bold','tiny','normal']) assert.ok(generated.includes(font+'.json'), 'Track fonts must be discovered under src/');
+  for (const font of ['small','tiny','normal']) assert.ok(generated.includes(font+'.json'), 'Track fonts must be discovered under src/');
 });

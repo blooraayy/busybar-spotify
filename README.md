@@ -389,10 +389,12 @@ Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi do
 
 ## Track progress
 
-A one-pixel progress line occupies x=18..71, y=15, below the artist and beside
-the cover. The bold title is at y=-2 to compensate its internal top margin; the
-artist uses the compact tiny font at y=9 (six-pixel line box, rows 9..14), so
-its descenders cannot overlap progress. The cover remains at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
+The progress indicator occupies two rows, y=14..15. Only the elapsed portion
+is visible, growing from left to right with a green gradient and pale playhead;
+there is no visible border or unplayed rail. Its 52-pixel range is x=19..70,
+with a black backing at x=18..71. The title uses small at y=0 and the artist
+tiny at y=7. The title moves down two pixels from the compact layout; the
+artist moves down one, preserving the blank row above progress. The cover stays at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
 PC subscribes to TimelinePropertiesChanged and retains only the current anchor.
 Normal timeline ticks do not wake the device; state/duration changes and seeks
 of at least 1.5 seconds do. Metadata snapshots include current position_ms and
@@ -407,8 +409,7 @@ failure freezes it until recovery. Back clears the timer. The default 128 KiB
 heap and the existing firmware API version remain unchanged.
 
 
-The progress rail uses a muted green background, a dark-to-bright green fill and
-a pale playhead marking the current position. All three elements stay one pixel
-high, below the artist. The playhead and fill update together at the same pixel
-boundary; styling adds no network polling or animation timer. All progress ids
-are cleared together when timing is unavailable.
+The fill and playhead are both two pixels high and update together only at
+visible pixel boundaries. Styling adds no polling or animation timer. At zero
+progress all pixels are black, and all progress ids are cleared together when
+timing becomes unavailable.

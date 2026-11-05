@@ -1,3 +1,5 @@
+export const PROGRESS_WIDTH = 52;
+
 /** @param {unknown} value */
 export function playbackProgress(value) {
   const data = /** @type {{state?: unknown, position_ms?: unknown, duration_ms?: unknown}} */ (value || {});
@@ -9,5 +11,5 @@ export function playbackProgress(value) {
 
 /** @param {{position: number, duration: number, playing: boolean}} progress @param {number} elapsed */
 export function progressPixels(progress, elapsed) {
-  return Math.min(54, Math.floor(54 * Math.min(progress.duration, progress.position + (progress.playing ? Math.max(0, elapsed) : 0)) / progress.duration));
+  return Math.min(PROGRESS_WIDTH, Math.floor(PROGRESS_WIDTH * Math.min(progress.duration, progress.position + (progress.playing ? Math.max(0, elapsed) : 0)) / progress.duration));
 }

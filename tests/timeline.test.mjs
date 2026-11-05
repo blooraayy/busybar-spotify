@@ -22,7 +22,7 @@ test('normal timeline ticks do not notify clients, while seeks and new durations
 test('invalid progress is hidden, positions clamp, and paused pixels do not advance',()=>{
  for(const data of [null,{}, {state:'idle',position_ms:1,duration_ms:100}, {state:'playing',position_ms:1,duration_ms:0}, {state:'playing',position_ms:NaN,duration_ms:100}]) assert.equal(playbackProgress(data),null);
  const paused=playbackProgress({state:'paused',position_ms:500,duration_ms:1000});
- assert.equal(progressPixels(paused,10000),27);
- assert.equal(progressPixels({...paused,playing:true},10000),54);
+ assert.equal(progressPixels(paused,10000),26);
+ assert.equal(progressPixels({...paused,playing:true},10000),52);
  assert.equal(playbackProgress({state:'playing',position_ms:-10,duration_ms:1000}).position,0);
 });

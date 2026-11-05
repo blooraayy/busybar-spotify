@@ -3,7 +3,7 @@ import { loadValues } from "@shared/settings";
 import { selectedBridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
 import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
-import { playbackProgress, progressPixels } from "@shared/progress";
+import { playbackProgress, progressPixels, PROGRESS_WIDTH } from "@shared/progress";
 import { progressElements, PROGRESS_IDS } from "./progress-display";
 import manifest from "./appmeta/manifest.json";
 
@@ -128,8 +128,8 @@ function main() {
     if (stopped || !progress || !progress.playing || shownVolume >= 0 || pendingIndicator || displayRetry) return;
     const elapsed = Math.max(0, Date.now() - progressAt);
     const pixels = progressPixels(progress, elapsed);
-    if (pixels >= 54) return;
-    const delay = Math.max(1000, Math.ceil((pixels + 1) * progress.duration / 54 - progress.position - elapsed));
+    if (pixels >= PROGRESS_WIDTH) return;
+    const delay = Math.max(1000, Math.ceil((pixels + 1) * progress.duration / PROGRESS_WIDTH - progress.position - elapsed));
     progressTimer = setTimeout(() => { progressTimer = 0; progressPending = true; kickDisplay(); }, delay);
   }
   async function clearVolume() {
@@ -162,17 +162,17 @@ function main() {
       if (stopped) return;
     }
     const text = column({ width: 54, align: "start" }, [
-      { type: "text", id: "title", text: title, font: "bold", color: "#FFFFFFFF", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
+      { type: "text", id: "title", text: title, font: "small", color: "#FFFFFFFF", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
       { type: "text", id: "status", text: artist, font: "tiny", color: "#FFFFFFB0", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
     ]);
     const elements = render(row({ gap: 2, align: "start" }, cover ? [
       { type: "xpmbitmap", id: "cover", data: cover, width: 16, height: 16 }, text,
     ] : [text]));
-    // Compensate the title font's top bearing; reserve row 15 for progress.
-    // The compact artist's six-pixel line box occupies rows 9..14.
+    // Lower the title by two pixels; keep the artist one pixel above progress.
+    // The cover and the two-pixel progress indicator retain their positions.
     for (const element of elements) {
       element.x = element.id === "cover" ? 0 : 18;
-      element.y = element.id === "title" ? -2 : 9;
+      element.y = element.id === "title" ? 0 : 7;
       if (element.id === "cover") element.y = 0;
     }
     const changed = elements.filter((element) => element.id === "cover" ? cover !== lastCover : element.id === "title" ? title !== lastTitle : artist !== lastArtist);
