@@ -385,3 +385,23 @@ If a later attempt still fails at least 15 seconds after the last successful
 response, the app shows PC offline. A confirmed Wi-Fi disconnection shows No Wi-Fi
 and uses a 30-second retry. Recovery redraws current metadata without relaunching.
 Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi down.
+
+
+## Track progress
+
+A one-pixel progress line occupies x=18..71, y=15, below the artist and beside
+the cover. The bold title is at y=-2 to compensate its internal top margin; the
+artist uses the compact tiny font at y=9 (six-pixel line box, rows 9..14), so
+its descenders cannot overlap progress. The cover remains at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
+PC subscribes to TimelinePropertiesChanged and retains only the current anchor.
+Normal timeline ticks do not wake the device; state/duration changes and seeks
+of at least 1.5 seconds do. Metadata snapshots include current position_ms and
+duration_ms, adjusted on the PC so device/PC clock differences do not matter.
+
+The device estimates elapsed playback locally between updates and schedules only
+the next visible pixel boundary (at least one second apart), not per-frame polling.
+Paused/finished tracks have no progress timer. The two stable progress element ids
+are serialized with all display updates; volume takes priority. Missing duration,
+idle/error states or confirmed disconnection remove the line. A transient bridge
+failure freezes it until recovery. Back clears the timer. The default 128 KiB
+heap and the existing firmware API version remain unchanged.

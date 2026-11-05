@@ -6,6 +6,7 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { volumeFrame } from './volume-frame.mjs';
 import { coverXpm } from './cover.mjs';
+import { createTimeline } from './timeline.mjs';
 import { playbackCommand, adjustVolume, parseVolumeRequest, startVolumeWorker, stopVolumeWorker } from './control.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
@@ -15,12 +16,14 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Inv
 let latest = { state: 'error', title: '', artist: '' };
 let updated = 0;
 let revision = 0;
+const timeline = createTimeline();
 const feed = createChangeFeed(() => {
   const fresh = Date.now() - updated < 40000;
-  return { tag: fresh ? `"${revision}"` : '"stale"', data: fresh ? latest : {state:'error',title:'',artist:''} };
+  return { tag: fresh ? `"${revision}"` : '"stale"', data: fresh ? {...latest, ...timeline.snapshot()} : {state:'error',title:'',artist:''} };
 });
-function publish(next) {
-  const changed = next.state !== latest.state || next.title !== latest.title || next.artist !== latest.artist || next.cover !== latest.cover;
+function publish(next, timing) {
+  const seek = timing ? timeline.update(timing, next.state) : (timeline.setState(next.state), false);
+  const changed = seek || next.state !== latest.state || next.title !== latest.title || next.artist !== latest.artist || next.cover !== latest.cover;
   if (changed) revision++;
   latest = next;
   updated = Date.now();
@@ -39,7 +42,7 @@ lines.on('line', (line) => {
     if (!['playing', 'paused', 'idle', 'error'].includes(data.state)) return;
     const rgb = typeof data.cover_rgb === 'string' && data.cover_rgb.length === 1536 ? data.cover_rgb : '';
     if (rgb !== lastRgb) { cover = coverXpm(rgb); lastRgb = rgb; }
-    publish({ state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120), cover });
+    publish({ state: data.state, title: String(data.title || '').slice(0, 120), artist: String(data.artist || '').slice(0, 120), cover }, data);
     updated = Date.now();
   } catch { console.error('busybar-spotify: invalid Windows media response'); }
 });

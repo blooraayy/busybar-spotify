@@ -80,15 +80,25 @@ do {
                 $sessionType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSession, Windows.Media.Control, ContentType = WindowsRuntime]
                 $events.Watch($session, $sessionType, 'MediaPropertiesChanged')
                 $events.Watch($session, $sessionType, 'PlaybackInfoChanged')
+                $events.Watch($session, $sessionType, 'TimelinePropertiesChanged')
             }
             $media = Wait-WinRT ($session.TryGetMediaPropertiesAsync()) $propertiesType
             $status = $session.GetPlaybackInfo().PlaybackStatus.ToString()
             $state = if ($status -eq 'Playing') { 'playing' } elseif ($status -eq 'Paused') { 'paused' } else { 'idle' }
+            $timing = @{ position_ms = 0; duration_ms = 0; timeline_at = 0 }
+            try {
+                $timeline = $session.GetTimelineProperties()
+                $timing.position_ms = [long]($timeline.Position - $timeline.StartTime).TotalMilliseconds
+                $timing.duration_ms = [long]($timeline.EndTime - $timeline.StartTime).TotalMilliseconds
+                $timing.timeline_at = ([DateTimeOffset]$timeline.LastUpdatedTime).ToUnixTimeMilliseconds()
+            } catch {
+                # Missing timeline data hides progress without breaking metadata.
+            }
             $key = "$($media.Title)`n$($media.Artist)`n$($media.AlbumTitle)"
             if ($key -ne $coverKey -or -not $cover) {
                 if ($key -ne $coverKey -and -not $Once) {
                     # Publish text immediately; thumbnail I/O must not hold it up.
-                    @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = '' } | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
+                    (@{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = '' } + $timing) | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
                 }
                 $cover = ''
                 try { $cover = Read-Cover $media.Thumbnail } catch {
@@ -96,7 +106,7 @@ do {
                 }
                 $coverKey = $key
             }
-            $result = @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = $cover }
+            $result = @{ state = $state; title = ([string]$media.Title); artist = ([string]$media.Artist); cover_rgb = $cover } + $timing
         } else { $coverKey = ''; $cover = ''; $result = @{ state = 'idle'; title = ''; artist = '' } }
     } catch {
         [Console]::Error.WriteLine('busybar-spotify: Windows media read failed: ' + $_.Exception.Message)
