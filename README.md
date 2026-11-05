@@ -385,3 +385,32 @@ If a later attempt still fails at least 15 seconds after the last successful
 response, the app shows PC offline. A confirmed Wi-Fi disconnection shows No Wi-Fi
 and uses a 30-second retry. Recovery redraws current metadata without relaunching.
 Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi down.
+
+
+## Track progress
+
+The progress indicator occupies one row, y=15. Only the elapsed portion
+is visible, growing from left to right with a green gradient and pale playhead;
+there is no visible border or unplayed rail. Its 52-pixel range is x=19..70,
+with a black backing at x=18..71. The title uses small at y=-1 and the artist
+tiny at y=8. Native ink measured with Agjpqy occupies title rows 1..7 and artist
+rows 9..13, including descenders. Row 8 separates title/artist; row 14 separates
+artist/progress. These native sizes fit both explicit one-pixel gaps. The cover stays at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
+PC subscribes to TimelinePropertiesChanged and retains only the current anchor.
+Normal timeline ticks do not wake the device; state/duration changes and seeks
+of at least 1.5 seconds do. Metadata snapshots include current position_ms and
+duration_ms, adjusted on the PC so device/PC clock differences do not matter.
+
+The device estimates elapsed playback locally between updates and schedules only
+the next visible pixel boundary (at least one second apart), not per-frame polling.
+Paused/finished tracks have no progress timer. The three stable progress element ids
+are serialized with all display updates; volume takes priority. Missing duration,
+idle/error states or confirmed disconnection remove the line. A transient bridge
+failure freezes it until recovery. Back clears the timer. The default 128 KiB
+heap and the existing firmware API version remain unchanged.
+
+
+The fill and playhead are both one pixel high and update together only at
+visible pixel boundaries. Styling adds no polling or animation timer. At zero
+progress all pixels are black, and all progress ids are cleared together when
+timing becomes unavailable.

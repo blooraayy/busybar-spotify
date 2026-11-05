@@ -3,6 +3,8 @@ import { loadValues } from "@shared/settings";
 import { selectedBridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
 import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
+import { playbackProgress, progressPixels, PROGRESS_WIDTH } from "@shared/progress";
+import { progressElements, PROGRESS_IDS } from "./progress-display";
 import manifest from "./appmeta/manifest.json";
 
 const APP = manifest.id;
@@ -19,6 +21,10 @@ function main() {
   let lastVolumeAt = -VOLUME_UPDATE_MS;
   let volumeTimer = 0;
   let displayRetry = 0;
+  let progressTimer = 0, progressAt = 0, shownProgress = -1;
+  let progressPending = false;
+  /** @type {{position: number, duration: number, playing: boolean} | null} */
+  let progress = null;
   let watching = false;
   let controlling = false;
   let displayBusy = false;
@@ -71,7 +77,7 @@ function main() {
     try {
       // Coalesce to the latest metadata/volume; never queue complete frames.
       // Track changes are invisible behind the full-screen indicator; defer them.
-      while (!stopped && (pendingIndicator || hideVolume || (pendingTrack && shownVolume < 0))) {
+      while (!stopped && (pendingIndicator || hideVolume || ((pendingTrack || progressPending) && shownVolume < 0))) {
         if (pendingIndicator) {
           const indicator = pendingIndicator;
           pendingIndicator = null;
@@ -83,29 +89,62 @@ function main() {
           pendingTrack = null;
           try { await draw(track.title, track.artist, track.cover); }
           catch (error) { if (!pendingTrack) pendingTrack = track; throw error; }
+        } else if (progressPending) {
+          await drawProgress();
         }
       }
     } catch (error) {
       report(`display: ${error instanceof Error ? error.message : String(error)}`);
-      if (!stopped && (pendingTrack || hideVolume)) displayRetry = setTimeout(() => {
+      if (!stopped && (pendingTrack || hideVolume || progressPending)) displayRetry = setTimeout(() => {
         displayRetry = 0;
         kickDisplay();
       }, 10000);
     } finally {
       displayBusy = false;
       scheduleVolume();
+      scheduleProgress();
     }
+  }
+  /** @param {unknown} data */
+  function setProgress(data) {
+    clearTimeout(progressTimer); progressTimer = 0;
+    progress = playbackProgress(data); progressAt = Date.now();
+    progressPending = true;
+    kickDisplay();
+  }
+  async function drawProgress() {
+    progressPending = false;
+    const pixels = progress ? progressPixels(progress, Date.now() - progressAt) : -1;
+    if (pixels === shownProgress) return;
+    try {
+      if (pixels < 0) {
+        if (shownProgress >= 0) await device.DisplayClear({application_name: APP, element_ids: PROGRESS_IDS});
+      } else await device.DisplayDraw({application_name: APP, priority: 50, elements: progressElements(pixels, shownProgress < 0)});
+      shownProgress = pixels;
+    } catch (error) { progressPending = true; throw error; }
+  }
+  function scheduleProgress() {
+    clearTimeout(progressTimer); progressTimer = 0;
+    if (stopped || !progress || !progress.playing || shownVolume >= 0 || pendingIndicator || displayRetry) return;
+    const elapsed = Math.max(0, Date.now() - progressAt);
+    const pixels = progressPixels(progress, elapsed);
+    if (pixels >= PROGRESS_WIDTH) return;
+    const delay = Math.max(1000, Math.ceil((pixels + 1) * progress.duration / PROGRESS_WIDTH - progress.position - elapsed));
+    progressTimer = setTimeout(() => { progressTimer = 0; progressPending = true; kickDisplay(); }, delay);
   }
   async function clearVolume() {
     clearTimeout(volumeTimer);
+    clearTimeout(progressTimer); progressTimer = 0;
     if (shownVolume >= 0 && !stopped) await device.DisplayClear({ application_name: APP, element_ids: VOLUME_IDS });
     shownVolume = -1;
     hideVolume = false;
+    if (progress) progressPending = true;
   }
   /** @param {number} value */
   async function showVolume(value) {
     if (stopped) return;
     clearTimeout(volumeTimer);
+    clearTimeout(progressTimer); progressTimer = 0;
     hideVolume = false;
     if (value !== shownVolume) {
       await device.DisplayDraw({ application_name: APP, priority: 50, elements: sliderElements(value, shownVolume) });
@@ -123,16 +162,18 @@ function main() {
       if (stopped) return;
     }
     const text = column({ width: 54, align: "start" }, [
-      { type: "text", id: "title", text: title, font: "bold", color: "#FFFFFFFF", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
-      { type: "text", id: "status", text: artist, font: "small", color: "#FFFFFF80", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
+      { type: "text", id: "title", text: title, font: "small", color: "#FFFFFFFF", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
+      { type: "text", id: "status", text: artist, font: "tiny", color: "#FFFFFFB0", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
     ]);
     const elements = render(row({ gap: 2, align: "start" }, cover ? [
       { type: "xpmbitmap", id: "cover", data: cover, width: 16, height: 16 }, text,
     ] : [text]));
-    // Fixed baselines keep an unchanged row in place when the other row changes.
+    // Measured native ink, including g/j/p/q/y: small = rows 2..8, tiny = 1..5.
+    // Place title ink at 1..7 and artist ink at 9..13; rows 8 and 14 stay blank.
+    // The cover stays fixed; the one-pixel progress indicator occupies row 15.
     for (const element of elements) {
       element.x = element.id === "cover" ? 0 : 18;
-      element.y = element.id === "title" ? 0 : 9;
+      element.y = element.id === "title" ? -1 : 8;
       if (element.id === "cover") element.y = 0;
     }
     const changed = elements.filter((element) => element.id === "cover" ? cover !== lastCover : element.id === "title" ? title !== lastTitle : artist !== lastArtist);
@@ -149,6 +190,7 @@ function main() {
     let nextDelay = 100;
     try {
       if (!await online()) {
+        setProgress(null);
         lastEtag = "";
         nextDelay = 30000;
         queueTrack("Spotify", "No Wi-Fi");
@@ -167,6 +209,7 @@ function main() {
         if (stopped) return;
         const [title, artist] = playbackLines(data);
         queueTrack(title, artist, playbackCover(data));
+        setProgress(data);
         lastEtag = response.headers?.get("ETag") || "";
       }
       bridgeReady = true;
@@ -189,7 +232,14 @@ function main() {
       kickDisplay();
 
       lastEtag = "";
-      if (lastWatchAt < 0 || Date.now() - lastWatchAt >= 15000) queueTrack("Spotify", "PC offline");
+      if (lastWatchAt < 0 || Date.now() - lastWatchAt >= 15000) {
+        setProgress(null);
+        queueTrack("Spotify", "PC offline");
+      } else if (progress) {
+        progress.position = Math.min(progress.duration, progress.position + (progress.playing ? Math.max(0, Date.now() - progressAt) : 0));
+        progress.playing = false;
+        clearTimeout(progressTimer); progressTimer = 0;
+      }
       nextDelay = retryDelay;
       retryDelay = Math.min(retryDelay * 2, 30000);
     } finally {
@@ -276,7 +326,7 @@ function main() {
     if (event.key !== "back") return;
     stopped = true;
     pendingCommand = ""; pendingVolume = 0; pendingTrack = null; pendingIndicator = null;
-    clearTimeout(watchTimer); clearTimeout(controlTimer); clearTimeout(volumeTimer); clearTimeout(displayRetry);
+    clearTimeout(watchTimer); clearTimeout(controlTimer); clearTimeout(volumeTimer); clearTimeout(displayRetry); clearTimeout(progressTimer);
     if (watching && url) void fetch(url.replace(/\/now-playing$/, "/playback/cancel-wait"), {
       method: "POST", headers: { "X-Busybar-Control": "1", "X-Busybar-Client": client },
     }).catch(report);

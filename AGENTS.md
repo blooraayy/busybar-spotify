@@ -143,3 +143,12 @@ request pending. Never serialize controls behind the waiting subscription or
 allow concurrent display requests. Keep the long-poll timeout below the target
 firmware inactivity limit (1.5 seconds leaves headroom on API 27.14.0; three-second waits produced inactivity timeouts over Wi-Fi). Cancel the
 wait and clear watch, control, overlay and display-retry timers on Back.
+
+
+## Track progress lifecycle
+
+The PC handles Windows timeline events and suppresses normal clock-tick
+notifications. On the bar, progress uses one timeout for the next visible pixel
+boundary (minimum one second), only while playing with a known duration. Use the
+shared display queue, pause drawing under volume and clear the timer on Back.
+Never add per-second network polling for progress. Unknown duration hides it.

@@ -1,3 +1,5 @@
+import {playbackProgress, progressPixels, PROGRESS_WIDTH} from '../shared/progress.js';
+import {progressElements,PROGRESS_IDS} from '../src/progress-display.js';
 import { volumeFrame } from '../companion/volume-frame.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +19,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  const response=(data=track,status=200,tag=`"${revision}"`)=>({ok:status>=200&&status<300,status,headers:{get:name=>name==='ETag'?tag:name==='X-Busybar-Events'?'1':null},json:async()=>data});
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
- const context={...volumeContext.volumeTools, manifest:{id:'app.test'},bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
+ const context={...volumeContext.volumeTools, manifest:{id:'app.test'},playbackProgress,progressPixels,PROGRESS_WIDTH,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
   volumeFrame, Date:class extends Date {static now(){return now;}},
   loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep,...addresses}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
@@ -271,5 +273,47 @@ test('a timeout on the selected bridge preserves metadata but gates controls unt
  await app.advance(2000);
  app.input({key:'ok',action:'short'});await flush();assert.equal(app.commands.length,1);
  assert.ok(app.commands[0].url.includes('pc2'));assert.ok(app.requests.every(r=>r.url.includes('pc2')));
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+
+test('progress advances only at pixel boundaries with no extra metadata requests',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.push({state:'playing',title:'Timed song',artist:'Artist',position_ms:0,duration_ms:520000});await flush();
+ const bar=app.frames.at(-1);assert.equal(bar[0].id,'progress-bg');assert.equal(bar[0].y,15);
+ assert.equal(bar[0].x,18);assert.equal(bar[0].height,1);assert.equal(bar[1].fill_colors[0],'#000000FF');
+ await app.advance(100);const count=app.frames.length, requests=app.requests.length;
+ await app.advance(9899);assert.equal(app.frames.length,count);
+ await app.advance(1);assert.equal(app.frames.length,count+1);assert.equal(app.frames.at(-1).length,2);
+ assert.equal(app.requests.length,requests);assert.equal(app.maxDisplay(),1);
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+test('pause, seek, missing duration and the volume popup update progress without queues',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.push({state:'paused',title:'Timed song',artist:'Artist',position_ms:260000,duration_ms:520000});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='progress-fill').width,26);
+ const count=app.frames.length;await app.advance(30000);assert.equal(app.frames.length,count);
+ app.push({state:'playing',title:'Timed song',artist:'Artist',position_ms:400000,duration_ms:520000});await flush();
+ assert.equal(app.frames.at(-1).find(e=>e.id==='progress-fill').width,40);
+ app.input({key:'encoder',delta:1});await app.advance(0);const covered=app.frames.length;
+ await app.advance(1000);assert.equal(app.frames.length,covered);
+ await app.advance(1000);app.push({state:'playing',title:'No timeline',artist:'Artist'});await flush();
+ assert.ok(app.clears.some(ids=>ids.includes('progress-bg')));
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+
+test('native text layout reserves exactly one blank row after descenders',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ app.push({state:'playing',title:'Agjpqy',artist:'Agjpqy',position_ms:1000,duration_ms:520000});await flush();
+ const elements=app.frames.flat();
+ const title=elements.findLast(e=>e.id==='title'), artist=elements.findLast(e=>e.id==='status');
+ // Native firmware 1.3.1 measurements for these glyphs, independently captured
+ // from /screen: small ink 2..8, tiny ink 1..5, relative to their label y.
+ const ink={small:{top:2,bottom:8},tiny:{top:1,bottom:5}};
+ assert.equal(artist.y+ink[artist.font].top-(title.y+ink[title.font].bottom)-1,1);
+ const progress=elements.findLast(e=>e.id==='progress-bg');
+ assert.equal(progress.y-(artist.y+ink[artist.font].bottom)-1,1);
+ assert.ok(title.y+ink[title.font].top>=0);
  app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });
