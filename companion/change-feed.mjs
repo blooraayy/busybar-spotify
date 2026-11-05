@@ -1,5 +1,5 @@
 // Bounded long-poll clients. No history or per-track cache is retained here.
-export function createChangeFeed(snapshot, { timeoutMs = 3000, maxWaiters = 4 } = {}) {
+export function createChangeFeed(snapshot, { timeoutMs = 1500, maxWaiters = 4 } = {}) {
   const waiters = new Map();
   const cancelled = new Map();
   function reply(res, status, current) {

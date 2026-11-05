@@ -372,4 +372,16 @@ Spotify/Windows or a disconnected network.
 
 ## Multiple PC addresses
 
-Save up to three full PC URLs in Bridge URL 1, Bridge URL 2 and Bridge URL 3, for example http://192.168.1.200:8765/now-playing. Choose Bridge 1, Bridge 2 or Bridge 3 in the Active bridge dropdown, then restart the device app. Only the chosen address is used; connection failures retry that same PC with 10-60 seconds backoff and never switch to another saved address. An empty or invalid selected slot shows Set PC URL. Existing settings default to Bridge 1; saved URLs are preserved (settings version 1).
+Save up to three full PC URLs in Bridge URL 1, Bridge URL 2 and Bridge URL 3, for example http://192.168.1.200:8765/now-playing. Choose Bridge 1, Bridge 2 or Bridge 3 in the Active bridge dropdown, then restart the device app. Only the chosen address is used; connection failures retry that same PC with 2-30 seconds backoff and never switch to another saved address. An empty or invalid selected slot shows Set PC URL. Existing settings default to Bridge 1; saved URLs are preserved (settings version 1).
+
+## Bridge connection recovery
+
+The event subscription waits at most 1.5 seconds before returning an empty 304,
+leaving headroom for Wi-Fi latency below firmware's inactivity timeout. It still
+wakes immediately when metadata changes; the device keeps only one watch pending.
+After a failed request, retries back off through 2, 4, 8, 16 and 30 seconds.
+A single timeout preserves the last confirmed song instead of clearing its cover.
+If a later attempt still fails at least 15 seconds after the last successful
+response, the app shows PC offline. A confirmed Wi-Fi disconnection shows No Wi-Fi
+and uses a 30-second retry. Recovery redraws current metadata without relaunching.
+Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi down.

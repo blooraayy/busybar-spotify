@@ -10,7 +10,7 @@ vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, 
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, failControl=false, holdControl=false, addresses=null, failHosts=[] }={}) {
- let now=0, next=0, handler, revision=0, unbound=0, pendingWatch=null, controlFinish=null;
+ let now=0, next=0, handler, revision=0, unbound=0, pendingWatch=null, controlFinish=null, watchReject=null;
  let track={state:'playing',title:'Song',artist:'Artist'};
  let holdDraw=false, drawFinish=null, inDisplay=0, maxDisplay=0;
  const timers=new Map(), frames=[], clears=[], requests=[], commands=[], cancellations=[];
@@ -34,7 +34,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
     return response({ok:true});
    }
    requests.push({url,options});if(fail || failHosts.some(host=>url.includes(host)))throw Error('offline');
-   if(options?.headers?.['If-None-Match']===`"${revision}"`)return new Promise(resolve=>pendingWatch=resolve);
+   if(options?.headers?.['If-None-Match']===`"${revision}"`)return new Promise((resolve,reject)=>{pendingWatch=resolve;watchReject=reject;});
    return response();
   },
   listen:(_,fn)=>{handler=fn;return()=>unbound++;},
@@ -42,7 +42,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  };
  vm.runInNewContext(source,context);
  return {frames,clears,requests,commands,cancellations,timers,push,input:event=>handler(event),unbound:()=>unbound,maxDisplay:()=>maxDisplay,
-  holdNextDraw:()=>{holdDraw=true;},releaseDraw:()=>drawFinish(),finishControl:result=>controlFinish(response(result)),
+  setFail:value=>{fail=value;},failWatch:()=>{watchReject(Error('Inactivity timeout'));pendingWatch=null;},holdNextDraw:()=>{holdDraw=true;},releaseDraw:()=>drawFinish(),finishControl:result=>controlFinish(response(result)),
   async advance(ms){const until=now+ms;for(let i=0;i<50;i++){const item=[...timers].sort((a,b)=>a[1].due-b[1].due).find(([,t])=>t.due<=until);if(!item)break;now=item[1].due;timers.delete(item[0]);item[1].fn();await flush();}now=until;await flush();},
  };
 }
@@ -130,8 +130,8 @@ test('exit while a control is pending prevents late redraws and retries',async()
 
 test('offline watches back off; missing settings and disconnected Wi-Fi do not send controls',async()=>{
  const failed=launch({fail:true});await flush();assert.equal(failed.requests.length,1);
- await failed.advance(9999);assert.equal(failed.requests.length,1);await failed.advance(1);assert.equal(failed.requests.length,2);
- await failed.advance(20000);assert.equal(failed.requests.length,3);
+ await failed.advance(1999);assert.equal(failed.requests.length,1);await failed.advance(1);assert.equal(failed.requests.length,2);
+ await failed.advance(4000);assert.equal(failed.requests.length,3);
  const offline=launch({wifi:'disconnected'});await flush();offline.input({key:'ok',action:'short'});await flush();assert.equal(offline.requests.length,0);assert.equal(offline.commands.length,0);
  const unset=launch({configured:false});await flush();assert.equal(unset.frames[0][1].text,'Set PC URL');assert.equal(unset.requests.length,0);
 });
@@ -235,11 +235,41 @@ test('selected bridge receives metadata, controls and cancellation',async()=>{
 });
 test('unavailable selected bridge retries itself and never contacts other saved PCs',async()=>{
  const app=launch({addresses:{bridge_selection:'2',bridge_url_2:'http://pc2:8765/now-playing',bridge_url_3:'http://pc3:8765/now-playing'},fail:true});
- await flush();await app.advance(10000);await app.advance(20000);await app.advance(40000);
+ await flush();await app.advance(2000);await app.advance(4000);await app.advance(8000);
  assert.equal(app.requests.length,4);assert.ok(app.requests.every(r=>r.url.includes('pc2')));
  app.input({key:'back',action:'short'});await app.advance(0);await app.advance(60000);assert.equal(app.requests.length,4);
 });
 test('empty selected slot shows setup message without contacting another PC',async()=>{
  const app=launch({addresses:{bridge_selection:'3'}});await flush();
  assert.equal(app.requests.length,0);assert.equal(app.frames[0][1].text,'Set PC URL');
+});
+
+test('a transient watch timeout preserves the track and recovers after two seconds',async()=>{
+ const app=launch();await flush();await app.advance(100);const frames=app.frames.length;
+ app.failWatch();await flush();assert.equal(app.frames.length,frames);
+ await app.advance(1999);assert.equal(app.requests.length,2);
+ await app.advance(1);assert.equal(app.requests.length,3);assert.equal(app.frames.length,frames);
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+test('persistent bridge failures eventually show offline and recover without a relaunch',async()=>{
+ const app=launch();await flush();await app.advance(100);app.setFail(true);app.failWatch();await flush();
+ await app.advance(14000);assert.equal(app.frames[0][0].text,'Song');
+ assert.ok(!app.frames.some(frame=>frame.some(e=>e.text==='PC offline')));
+ await app.advance(16000);assert.ok(app.frames.some(frame=>frame.some(e=>e.text==='PC offline')));
+ app.setFail(false);await app.advance(30000);
+ assert.ok(app.frames.at(-1).some(e=>e.text==='Song'));
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+
+test('a timeout on the selected bridge preserves metadata but gates controls until recovery',async()=>{
+ const app=launch({addresses:{bridge_selection:'2',bridge_url_2:'http://pc2:8765/now-playing',bridge_url_3:'http://pc3:8765/now-playing'}});
+ await flush();await app.advance(100);const count=app.frames.length;
+ app.failWatch();await flush();
+ app.input({key:'ok',action:'short'});app.input({key:'encoder',action:'clockwise',delta:1});await flush();
+ assert.equal(app.commands.length,0);assert.equal(app.frames.length,count);
+ await app.advance(2000);
+ app.input({key:'ok',action:'short'});await flush();assert.equal(app.commands.length,1);
+ assert.ok(app.commands[0].url.includes('pc2'));assert.ok(app.requests.every(r=>r.url.includes('pc2')));
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });

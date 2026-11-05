@@ -22,7 +22,8 @@ function main() {
   let watching = false;
   let controlling = false;
   let displayBusy = false;
-  let retryDelay = 10000;
+  let retryDelay = 2000;
+  let lastWatchAt = -1;
   let pendingCommand = "";
   let pendingVolume = 0;
   let volumeStep = 5;
@@ -85,7 +86,7 @@ function main() {
         }
       }
     } catch (error) {
-      report(error);
+      report(`display: ${error instanceof Error ? error.message : String(error)}`);
       if (!stopped && (pendingTrack || hideVolume)) displayRetry = setTimeout(() => {
         displayRetry = 0;
         kickDisplay();
@@ -169,11 +170,15 @@ function main() {
         lastEtag = response.headers?.get("ETag") || "";
       }
       bridgeReady = true;
-      retryDelay = 10000;
+      lastWatchAt = Date.now();
+      retryDelay = 2000;
     } catch (error) {
       if (stopped) return;
-      report(error);
-      wifiConnected = false;
+      report(`watch: ${error instanceof Error ? error.message : String(error)}`);
+      // Recheck Wi-Fi without treating a bridge timeout as a disconnected radio.
+      wifiCheckedAt = Date.now() - 15000;
+      // Retain upstream's safety gate: do not send or replay controls until the
+      // manually selected bridge answers again, even while its track stays visible.
       bridgeReady = false;
       pendingCommand = "";
       pendingVolume = 0;
@@ -182,10 +187,11 @@ function main() {
       pendingIndicator = null;
       hideVolume = true;
       kickDisplay();
+
       lastEtag = "";
-      queueTrack("Spotify", "PC offline");
+      if (lastWatchAt < 0 || Date.now() - lastWatchAt >= 15000) queueTrack("Spotify", "PC offline");
       nextDelay = retryDelay;
-      retryDelay = Math.min(retryDelay * 2, 60000);
+      retryDelay = Math.min(retryDelay * 2, 30000);
     } finally {
       watching = false;
       if (!stopped) watchTimer = setTimeout(() => { void watch().catch(report); }, nextDelay);
@@ -233,7 +239,7 @@ function main() {
       }
     } catch (error) {
       if (!stopped) {
-        report(error); pendingVolume = 0; visualVolume = -1;
+        report(`control: ${error instanceof Error ? error.message : String(error)}`); pendingVolume = 0; visualVolume = -1;
         pendingIndicator = null; hideVolume = true; kickDisplay();
       }
     } finally {
