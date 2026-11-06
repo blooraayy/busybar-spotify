@@ -19,6 +19,13 @@ test('unchanged requests time out with an empty 304 and release their timer',asy
  const feed=createChangeFeed(()=>({tag:'"1"',data:{}}),{timeoutMs:20});const res=new Response();feed.get(request(),res);
  await new Promise(resolve=>setTimeout(resolve,35));assert.equal(res.status,304);assert.equal(res.body,'');assert.equal(feed.size,0);feed.close();
 });
+
+test('default quiet subscription renews within the mobile-hotspot timeout margin',async t=>{
+ const feed=createChangeFeed(()=>({tag:'"1"',data:{}}));t.after(()=>feed.close());
+ const res=new Response();feed.get(request(),res);
+ await new Promise(resolve=>setTimeout(resolve,1250));
+ assert.equal(res.status,304);assert.equal(res.body,'');assert.equal(feed.size,0);
+});
 test('cancellation releases the wait and also covers cancel-before-register races',()=>{
  const feed=createChangeFeed(()=>({tag:'"1"',data:{}}));const res=new Response();feed.get(request(),res);feed.cancel('device');assert.equal(res.status,204);assert.equal(feed.size,0);
  const late=new Response();feed.get(request(),late);assert.equal(late.status,204);assert.equal(feed.size,0);feed.close();

@@ -349,9 +349,9 @@ a 15-second health check recovers missed events and session changes.
 
 The device uses long polling: one `GET /now-playing` with `X-Busybar-Wait: 1`,
 `X-Busybar-Client` and `If-None-Match` waits until the metadata revision changes.
-The bridge responds immediately to changes. Quiet requests renew after three
-seconds with an empty HTTP 304, below the inactivity timeout observed on API
-27.14.0. Renewals do not parse or redraw unchanged artwork. Legacy bridges fall
+The bridge responds immediately to changes. Quiet requests renew after one
+second with an empty HTTP 304, leaving extra margin for mobile-hotspot delays
+before the firmware inactivity timeout. Renewals do not parse or redraw unchanged artwork. Legacy bridges fall
 back to a two-second poll. Network failures back off from 10 to 60 seconds.
 
 Controls have their own serialized request chain and remain usable while the
@@ -376,7 +376,7 @@ Save up to three full PC URLs in Bridge URL 1, Bridge URL 2 and Bridge URL 3, fo
 
 ## Bridge connection recovery
 
-The event subscription waits at most 1.5 seconds before returning an empty 304,
+The event subscription waits at most one second before returning an empty 304,
 leaving headroom for Wi-Fi latency below firmware's inactivity timeout. It still
 wakes immediately when metadata changes; the device keeps only one watch pending.
 After a failed request, retries back off through 2, 4, 8, 16 and 30 seconds.
@@ -414,3 +414,41 @@ The fill and playhead are both one pixel high and update together only at
 visible pixel boundaries. Styling adds no polling or animation timer. At zero
 progress all pixels are black, and all progress ids are cleared together when
 timing becomes unavailable.
+
+## Name your devices from the PC
+
+Open `http://localhost:8765/settings` while the companion is running, or double-click
+`Configurar BUSY Bar.cmd`. Enter up to three names (24 characters each) and IP
+addresses or full HTTP bridge URLs. Choose the active device and click **Aplicar a
+BUSY Bar** with the bar connected by USB. Bare addresses use port 8765 and
+`/now-playing`. HTTPS bridges, credentials, query strings and other paths are not supported.
+
+The companion checks and builds a temporary copy, installs it using the supported
+USB HTTP API at `10.0.4.20`, restores the addresses and selection, verifies the saved
+values, and starts the app. Spotify's Windows volume step is preserved. Applying
+briefly interrupts the on-device app; it does not pause music. The native settings
+dropdown and address labels now show your names. No firmware is modified.
+
+Names are read from the settings schema installed **on the bar**, and addresses
+and selection from its settings. They travel with the bar to other PCs. On each
+Windows PC, copy/clone this project, install Node.js 24, and run the launcher. It
+installs the project dependencies if missing (Internet required the first time),
+starts the bridge if needed, and opens the local page. The companion must run on
+each PC to access that PC's Spotify. Network access to the bridge still requires
+reachable Wi-Fi and the appropriate Windows firewall permission. This is not a
+cloud service: there is no public account or remote administration endpoint.
+
+Configuration routes accept only loopback clients with a localhost Host header;
+updates additionally require a same-origin request token. Playback routes remain
+available to the bar on the trusted LAN. The page reports asynchronous build and
+install progress and blocks concurrent deployments. Reloading the page reconnects
+to the current job. Keep this checkout and Node in place while a job is running.
+
+`.busybar-config/` is ignored by Git. It holds the settings backup
+`previous-settings.json`, the last successfully applied settings and temporary build
+directories. Failed builds never install anything; failures after installation are
+reported separately and can be retried with the USB connected. Successful applies
+also update this checkout's `src/appmeta/settings.json` labels, so later normal
+builds preserve the chosen names. Review and commit that file if sharing the names
+with another checkout is desired. The device addresses themselves are not written
+into source defaults.

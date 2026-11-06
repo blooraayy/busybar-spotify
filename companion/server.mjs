@@ -7,12 +7,18 @@ import { fileURLToPath } from 'node:url';
 import { volumeFrame } from './volume-frame.mjs';
 import { coverXpm } from './cover.mjs';
 import { createTimeline } from './timeline.mjs';
+import { createSettingsService } from './settings-service.mjs';
+import { createSettingsHandler } from './settings-http.mjs';
 import { playbackCommand, adjustVolume, parseVolumeRequest, startVolumeWorker, stopVolumeWorker } from './control.mjs';
 
 if (process.platform !== 'win32') throw new Error('This companion requires Windows 10/11.');
 startVolumeWorker();
 const port = Number(process.env.BUSYBAR_SPOTIFY_PORT || 8765);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid bridge port.');
+const settingsHandler = createSettingsHandler({
+  service: createSettingsService({ root: fileURLToPath(new URL('../', import.meta.url)) }), port,
+  publicRoot: fileURLToPath(new URL('./public/', import.meta.url)),
+});
 let latest = { state: 'error', title: '', artist: '' };
 let updated = 0;
 let revision = 0;
@@ -48,6 +54,7 @@ lines.on('line', (line) => {
 });
 reader.stderr.on('data', (data) => process.stderr.write(data));
 const server = createServer((req, res) => {
+  if (settingsHandler(req, res)) return;
   if (req.method === 'POST' && req.url === '/playback/cancel-wait') {
     if (req.headers.origin || req.headers['x-busybar-control'] !== '1') { res.writeHead(403).end(); return; }
     feed.cancel(req.headers['x-busybar-client']);

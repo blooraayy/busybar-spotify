@@ -1,5 +1,7 @@
 // Bounded long-poll clients. No history or per-track cache is retained here.
-export function createChangeFeed(snapshot, { timeoutMs = 1500, maxWaiters = 4 } = {}) {
+// Keep quiet responses comfortably below the firmware's inactivity timeout,
+// including transmission delays on mobile hotspots.
+export function createChangeFeed(snapshot, { timeoutMs = 1000, maxWaiters = 4 } = {}) {
   const waiters = new Map();
   const cancelled = new Map();
   function reply(res, status, current) {

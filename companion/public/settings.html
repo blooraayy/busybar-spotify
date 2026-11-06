@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dispositivos · BUSY Bar Spotify</title><link rel="stylesheet" href="/settings.css"><script src="/settings.js" type="module"></script></head>
+<body><main>
+  <header><a class="brand" href="/settings"><span class="mark">▥</span> BUSY Bar <span class="product">/ Spotify</span></a><span class="local">Solo en este PC</span></header>
+  <section class="intro"><p class="eyebrow">TU MÚSICA, A MANO</p><h1>Cada PC, con su nombre.</h1><p>Guarda las direcciones una vez. Después elige tu dispositivo por su nombre, también desde los ajustes de la barra.</p></section>
+  <div id="connection" class="connection" role="status">Leyendo la barra conectada por USB…</div>
+  <form id="settings-form">
+    <fieldset id="fields" disabled><legend>Dispositivos guardados</legend><div id="devices" class="devices"></div>
+    <section class="selection"><label for="active">Dispositivo activo</label><select id="active" name="active"></select><p>La app usará únicamente esta dirección.</p></section>
+    </fieldset>
+    <section class="apply"><div><h2>Aplicar a la barra</h2><p>Conecta BUSY Bar por USB. Actualizaremos los nombres de sus ajustes nativos y reiniciaremos la app. El paso de volumen se conserva.</p></div><div class="actions"><button id="reload" type="button" class="secondary">Recargar</button><button id="submit" type="submit" disabled>Aplicar a BUSY Bar <span aria-hidden="true">↗</span></button></div></section>
+  </form>
+  <section id="progress" class="progress" role="status" aria-live="polite" hidden><span id="progress-label"></span></section>
+  <footer>Los nombres y direcciones viajan con la barra. En otro PC, ejecuta el puente y abre esta misma página local. La música del PC no se detiene.</footer>
+</main></body></html>

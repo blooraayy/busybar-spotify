@@ -1,5 +1,6 @@
 node_modules
 dist
+.busybar-config/
 *.log
 
 # Yarn 2+ install state, rebuilt on every install

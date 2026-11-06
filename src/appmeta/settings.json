@@ -4,7 +4,7 @@
   "fields": {
     "bridge_url": {
       "type": "string",
-      "label": "Bridge URL 1",
+      "label": "Dirección · Bridge 1",
       "description": "PC companion URL, e.g. http://192.168.1.10:8765/now-playing. Restart the app after changing it.",
       "default": "",
       "max_length": 200
@@ -20,21 +20,21 @@
     },
     "bridge_url_2": {
       "type": "string",
-      "label": "Bridge URL 2",
+      "label": "Dirección · Bridge 2",
       "description": "Saved PC URL, e.g. http://192.168.1.10:8765/now-playing. Used only when selected in Active bridge.",
       "default": "",
       "max_length": 200
     },
     "bridge_url_3": {
       "type": "string",
-      "label": "Bridge URL 3",
+      "label": "Dirección · Bridge 3",
       "description": "Saved PC URL, e.g. http://192.168.1.10:8765/now-playing. Used only when selected in Active bridge.",
       "default": "",
       "max_length": 200
     },
     "bridge_selection": {
       "type": "enum",
-      "label": "Active bridge",
+      "label": "Dispositivo activo",
       "description": "Choose the saved PC address to use. Restart the app after saving.",
       "default": "1",
       "options": [
