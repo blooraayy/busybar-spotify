@@ -414,3 +414,20 @@ The fill and playhead are both one pixel high and update together only at
 visible pixel boundaries. Styling adds no polling or animation timer. At zero
 progress all pixels are black, and all progress ids are cleared together when
 timing becomes unavailable.
+
+
+## Synchronized native text scrolling
+
+When both the title (small) and artist (tiny) exceed their 54-pixel viewports,
+scroll-sync.js computes their native circular traversal times from textWidth,
+including firmware 1.3.1's three-space gap. Both retain 1200 pixels/minute and
+a 1500 ms starting delay. Each repeat pause is 2500 ms plus the difference from
+the longer traversal, so both start each subsequent traversal together. The
+shorter line waits at its starting position until the longer one completes.
+
+On title/artist changes, the synchronized pair is cleared and recreated in one
+serialized draw to discard old LVGL animation phases. Artwork-only changes and
+progress updates do not reset scrolling. If either row fits, the normal pauses
+remain. Animation stays in the firmware: no per-frame requests, scroll timers,
+font downloads or firmware modifications are introduced. Recheck the native
+path formula if the firmware's circular-scroll behavior or fonts change.
