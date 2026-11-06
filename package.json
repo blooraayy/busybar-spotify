@@ -1,6 +1,7 @@
 {
   "name": "busybar-spotify",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "version": "0.1.0",
   "description": "Control Spotify playback and display currently playing music on your BUSY Bar.",
   "author": "blooraayy",

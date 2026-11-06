@@ -393,3 +393,17 @@ and `tools/patch-busy-cli.mjs` applies an idempotent fix after install and befor
 build. This changes only the local build tool, not firmware. Review/remove the
 workaround when upgrading the CLI. Commit `package-lock.json`; do not commit
 `node_modules/` or `dist/`.
+
+## License
+
+Original project material is available under the custom
+[BUSY Bar Spotify Personal Non-Commercial License](LICENSE).
+
+- **Allowed:** personal, non-commercial use, installation and private modifications.
+- **Permission required:** commercial use, business use, and redistribution of original or modified copies.
+- **Third-party material:** dependencies, adapted assets, logos and trademarks retain their own licenses and rights.
+
+This is a source-available project with usage restrictions, not an open-source
+license. See [LICENSE](LICENSE) for the full terms and how to request additional
+permission. Spotify and BUSY Bar names and marks belong to their respective owners;
+this project does not claim their endorsement.
