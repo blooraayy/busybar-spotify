@@ -1,21 +1,252 @@
-# Spotify
+# Spotify for BUSY Bar
 
-Control Spotify playback and display currently playing music on your BUSY Bar.
+Your currently playing Spotify track, album cover and playback controls on the BUSY Bar.
 
-A JavaScript app for the BUSY Bar, generated from the BUSY JS app template.
+**Windows 10/11 · Free Spotify accounts supported · No Spotify API credentials**
 
-## Getting started
+| On the display | From the controls |
+| --- | --- |
+| Rounded album cover, title and artist | Play / pause and next track |
+| Synchronized scrolling for long title and artist lines | Spotify volume from the wheel |
+| One-pixel playback progress | Immediate volume percentage overlay |
 
-```sh
-npm install
-npm run build         # build the app into dist/app.blooraayy.busybar-spotify.tgz
-npm run app:install   # install it on the BUSY Bar connected over USB
-npm run app:run       # launch the installed app
+[Install & configure](#install--configure) · [Controls](#controls) · [Settings](#settings) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Developer reference](#developer-reference)
+
+## Before you start
+
+You need **two parts** running: the app on the BUSY Bar and a small companion on your Windows PC.
+
+![Connection guide: Spotify desktop and the companion on Windows communicate with the BUSY Bar over the local network.](docs/images/connection-guide.svg)
+
+| Requirement | Details |
+| --- | --- |
+| Spotify | Windows desktop application, open on the PC. Premium is not required. |
+| Windows | Windows 10 or 11; the companion uses your signed-in user's media session. |
+| Node.js | Node 24 recommended, matching `.nvmrc`. Supported range: 24–25; Node 26 is excluded. |
+| Network | PC and BUSY Bar on the same local network; connect the bar to Wi-Fi. |
+| Device installation | USB connection recommended. The manifest requires BUSY Bar API 27.12.0 or later. |
+| Source checkout | Git, or an extracted copy of this repository. |
+
+Browser Spotify playback is not supported: Windows identifies it as the browser rather than a reliably distinguishable Spotify session. macOS and Linux companions are not implemented.
+
+## Install & configure
+
+Run the commands below in **PowerShell**, from this repository's folder. `npm.cmd` avoids PowerShell restrictions on `npm.ps1`.
+
+### 1. Prepare the project
+
+If you have not downloaded the repository yet:
+
+```powershell
+git clone https://github.com/blooraayy/busybar-spotify.git
+cd busybar-spotify
 ```
 
-The app's id is `app.blooraayy.busybar-spotify`, set in `src/appmeta/manifest.json`. An id is `<namespace>.<app>`, at most 32 characters, made of Latin letters, digits, underscores, dashes, and dots, and not starting with a dot. If yours still says `app.example`, change it to your own namespace before publishing.
+Install the locked dependencies:
 
-## Layout
+```powershell
+npm.cmd ci
+```
+
+### 2. Start the PC companion
+
+```powershell
+npm.cmd run companion
+```
+
+Keep this terminal open. The companion prints one or more PC addresses. Copy the **LAN URL** for the network shared with the BUSY Bar, for example:
+
+```text
+http://192.168.1.10:8765/now-playing
+```
+
+Use your PC's actual address, including `/now-playing`. Do not use `localhost` or the BUSY Bar's address. If Windows asks, allow Node.js through the firewall on your **private network**.
+
+Open Spotify desktop and play a song. Opening that URL in a browser on the PC should return a JSON snapshot of the current track.
+
+### 3. Install the device app
+
+Connect the BUSY Bar over USB. In a **second PowerShell terminal**, open the repository folder and run:
+
+```powershell
+npm.cmd run build
+npm.cmd run app:install
+```
+
+The build creates `dist/app.blooraayy.busybar-spotify.tgz`; the install command sends it to the connected bar. USB is used for deployment; the running app still needs the shared local network to reach the companion.
+
+### 4. Save the PC address
+
+Open the BUSY Bar's web interface (Virtual LAN), then **Apps → Spotify**:
+
+![Illustrated settings example showing the full PC URL, active bridge selection and volume step.](docs/images/settings-guide.svg)
+
+| Field | First-time value |
+| --- | --- |
+| **Bridge URL 1** | The full URL copied in step 2 |
+| **Active bridge** | Bridge 1 |
+| **Volume step (%)** | Leave at 5, or choose your preferred increment |
+
+Save the settings, then launch Spotify from the BUSY Bar app menu, or run:
+
+```powershell
+npm.cmd run app:run
+```
+
+**Restart the BUSY Bar app after changing its settings.** The song title, artist and cover should now appear. Progress appears when Windows provides a valid track duration.
+
+### 5. Optional: start the companion with Windows
+
+First stop the manually running companion with **Ctrl+C**, then run:
+
+```powershell
+npm.cmd run companion:autostart
+Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"
+```
+
+This registers a hidden task for your Windows user and starts it now. Future sign-ins start **only the bridge**; it never launches Spotify. You no longer need to keep a terminal open.
+
+Keep this checkout and Node.js in their current locations. Rerun the installer if you move either one. The task uses normal user permissions, allows one scheduled instance and retries up to three times on failure.
+
+| Action | PowerShell command |
+| --- | --- |
+| Inspect the startup task | `Get-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"` |
+| Stop this checkout's bridge and reader | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/stop.ps1` |
+| Remove automatic startup | `npm.cmd run companion:autostart:remove` |
+
+## Controls
+
+| BUSY Bar input | Action |
+| --- | --- |
+| **Start**, short press | Pause / resume Spotify |
+| Wheel **OK**, short press | Next track |
+| Wheel clockwise | Raise Spotify volume |
+| Wheel counterclockwise | Lower Spotify volume |
+| **Back**, short press | Close the BUSY Bar app |
+
+The wheel changes **Spotify's Windows per-app audio-session volume**. It does not move Spotify's internal volume slider or change the Windows master volume, other apps, or the BUSY Bar speaker volume. If Spotify has no audio session, the command fails without adjusting another app.
+
+## Settings
+
+Change these in **Apps → Spotify** in the BUSY Bar web interface. Save, then restart the device app; no code edits or rebuild are needed.
+
+| Setting | Purpose | Default |
+| --- | --- | --- |
+| Bridge URL 1 | Full companion URL for the first PC | Empty |
+| Bridge URL 2 / 3 | Optional saved URLs for other PCs | Empty |
+| Active bridge | Select which one of the three saved URLs to use | Bridge 1 |
+| Volume step (%) | Percentage points changed per wheel detent, from 1 to 100 | 5 |
+
+Only the selected bridge is contacted. There is **no automatic switching** to another saved PC when it goes offline. An empty or invalid selected URL shows `Set PC URL`.
+
+The bridge listens on port **8765** by default. `BUSYBAR_SPOTIFY_PORT` overrides it; if changed, also update the saved URL. It exposes current metadata and playback controls without authentication to reachable LAN clients. Use a trusted local network and do not forward this port to the Internet. Spotify credentials are never required, and metadata is not saved to disk.
+
+## Updating an existing installation
+
+After updating your local checkout:
+
+```powershell
+npm.cmd ci
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd run app:install
+npm.cmd run app:run
+```
+
+If companion files changed, restart the PC bridge too. For a hidden scheduled bridge:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/stop.ps1
+Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"
+```
+
+For a terminal-run bridge, stop it with Ctrl+C and run `npm.cmd run companion` again. The stop script matches this checkout's server path and terminates its process tree, avoiding orphaned media readers and occupied ports.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `Set PC URL` | Save a full URL ending in `/now-playing` in the selected bridge slot; restart the bar app. |
+| `No Wi-Fi` | Connect the BUSY Bar to Wi-Fi and check that it shares the PC's local network. |
+| `PC offline` | Check the companion is running, the saved PC address is current, and the private-network firewall allows Node.js on the configured port. |
+| `No music` / bridge reports `idle` | Use Spotify desktop in the signed-in Windows session, then pause/resume a song. See media-session diagnostics below. |
+| Title remains `Spotify` for some songs | Current fonts cannot render all scripts; see the text limitations below. |
+| No progress line | Windows must supply a valid duration. Unknown-duration content hides the line. |
+| Settings seem unchanged | Save and restart Spotify on the BUSY Bar, not just the PC companion. |
+| Port 8765 is already in use | Avoid running a manual bridge alongside the scheduled one. Stop this checkout's bridge before restarting it. |
+| `npm ci` rejects the lockfile | For intentional dependency changes, run `npm.cmd install` and keep `package.json` and `package-lock.json` in sync. |
+
+To inspect media sessions exposed by Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/read-media.ps1 -ListSessions
+```
+
+If Spotify is absent, enable **Show desktop overlay when using media keys** in Spotify's display settings **if your Spotify version offers it**, then pause/resume playback.
+
+Temporary bridge failures recover automatically. The last confirmed song is preserved initially; a later failure at least 15 seconds after the last successful response shows `PC offline`. Retries back off through 2, 4, 8, 16 and 30 seconds. Confirmed Wi-Fi disconnection shows `No Wi-Fi` and uses a 30-second retry. Recovery does not require relaunching the app.
+
+## How it works
+
+### Windows events and connection lifecycle
+
+The Node.js companion uses a hidden PowerShell adapter for Windows WinRT media APIs. Its process-local execution-policy override does not change the machine policy or install additional packages. `media-events.cs` handles WinRT registration tokens, which PowerShell cannot subscribe to with `Register-ObjectEvent`.
+
+The PC listens for session, metadata, playback-state and timeline events. Notifications are coalesced with an AutoResetEvent, with a coarse 15-second health check for missed events. Title and artist are published before thumbnail decoding; only current state is retained.
+
+The bar keeps **one long poll** to `/now-playing`, using `X-Busybar-Wait: 1`, `X-Busybar-Client` and `If-None-Match`. Changes wake it immediately; quiet requests return an empty HTTP 304 after at most **1.5 seconds**, leaving headroom below the inactivity limit observed on API 27.14.0. Unchanged responses do not decode artwork or redraw the display. Legacy bridges fall back to two-second polling. Event delivery, network and display processing determine latency; there is no fixed latency guarantee.
+
+Controls use a separate serialized request path, so they do not wait behind the subscription. One display queue coalesces pending changes and allows only one display operation in flight. The bridge allows at most four waiting clients and cleans up timers on disconnect, cancellation and shutdown.
+
+Back cancels the subscription through `/playback/cancel-wait`, clears watch, control, overlay, progress and display-retry timers, then releases the input listener after its callback. Already-sent requests may finish. A bounded cancellation cache handles request-arrival races; the app exits when its last pending handle is released.
+
+### Album cover, text and icons
+
+The cover occupies the left **16 × 16 pixels**, with rounded corners. Windows crops and resizes artwork on the PC; the companion converts it to XPM2 with at most 32 colors and less than 1 KiB of data. The bar never decodes full artwork. Only the current thumbnail is cached in memory, unchanged covers are not redrawn, and missing artwork clears the cover.
+
+Title and artist use the remaining 54 pixels after a two-pixel gap. The title's visible ink occupies rows 1–7, the artist rows 9–13, and progress row 15: rows 8 and 14 provide one-pixel separation, including letter descenders.
+
+**Text limitation:** current bitmap fonts use ASCII. Latin accents are transliterated; unsupported characters become spaces, so some non-Latin titles can fall back to `Spotify`. General Unicode/Japanese rendering is not included in this branch. Paused playback shows `Paused`; an absent Spotify session shows `No music`.
+
+The packaged front icon is an 8 × 8 green Spotify mark; the back icon is 11 × 11 grayscale. Their waves are aligned to the pixel grid for legibility, with no runtime downloads.
+
+### Synchronized scrolling
+
+When both title and artist exceed their viewports, `src/scroll-sync.js` measures them with `textWidth` and matches their native circular-scroll cycles. Both move at **1200 pixels/minute** after a **1500 ms** initial delay. The shorter line waits for the longer one before the next cycle starts.
+
+Traversal time includes firmware 1.3.1's three-space gap. Each repeat pause is 2500 ms plus the difference between that line's traversal and the longest traversal. Metadata changes clear and recreate the pair in one serialized draw to reset old LVGL animation phases. Cover-only and progress changes do not reset scrolling. When either line fits, normal pauses remain.
+
+Animation runs in firmware, without per-frame requests or JavaScript scroll timers. Recheck the traversal formula if firmware circular-scroll behavior changes.
+
+### Playback controls and volume feedback
+
+| Companion route | Windows operation |
+| --- | --- |
+| `POST /playback/toggle` | `TryTogglePlayPauseAsync` |
+| `POST /playback/next` | `TrySkipNextAsync` |
+| `POST /playback/volume?steps=<n>` | Core Audio volume for sessions owned by Spotify.exe |
+
+Control requests require `X-Busybar-Control: 1`; browser-origin requests are rejected. These checks are not authentication. Next and play/pause share one pending slot; presses during an active command are ignored. Failed commands are never automatically retried, avoiding duplicated actions.
+
+The first wheel turn is sent immediately. Further turns are combined at most once every 100 ms, with a maximum of 10 pending steps; opposite turns cancel. Controls remain serialized and Back discards unsent changes. A persistent PC volume worker compiles `volume.cs` once at startup, blocks while idle and never launches Spotify. Values are clamped to 0–100% without changing the mute switch.
+
+A zero-step request reads the initial volume. Each wheel turn immediately previews the configured percentage locally, independent of network replies. Older replies cannot rewind the preview; the latest confirmation reconciles it with the actual level. A failed control hides the preview and discards its baseline.
+
+The overlay uses six persistent canvas elements: background, gradient fill, percentage, arrows and speaker. Normal changes update only fill width and value; icon/arrow states change at 0/100. Borders are disabled, and zero uses a one-pixel black fill because zero-width rectangles are not accepted. Pending previews coalesce to the latest value. Track/progress drawing waits until the overlay disappears after 1.5 seconds.
+
+Drawing uses the supported local HTTP canvas API rather than the internal LVGL slider used by native Settings. The app keeps its default 128 KiB heap. The design follows the firmware's read-only [Sound settings slider](https://github.com/busy-app/busybar-firmware/blob/dev/applications/settings/sound_settings/widgets/slider_view.c) and [speaker assets](https://github.com/busy-app/busybar-firmware/tree/dev/assets/images/external/sound_settings). Older full-image resources remain for reference but are not used by the active overlay; `node tools/generate-volume-images.mjs` regenerates them.
+
+### Track progress
+
+The elapsed portion is a one-pixel green gradient with a pale playhead, with no visible border or unplayed rail. It spans x=19–70, backed by black at x=18–71, y=15. At zero progress the line is black.
+
+Windows SMTC supplies timeline anchors. `TimelinePropertiesChanged` updates the current anchor, but ordinary clock ticks do not wake the bar. Playback/duration changes and seeks of at least 1.5 seconds do. Snapshots contain `position_ms` and `duration_ms`, adjusted on the PC to avoid differences between PC and device clocks.
+
+Between events, the bar estimates progress locally and schedules only the **next visible pixel boundary**, at least one second apart. There is no per-second network polling. Paused or finished tracks have no progress timer. Three stable element IDs share the display queue; the volume overlay takes priority. Unknown duration, idle/error states and confirmed disconnection clear the line. A transient bridge failure freezes it until recovery; Back clears its timer.
+
+## Developer reference
+
+### Project layout
 
 `src/` is the app — everything in it is yours to edit.
 
@@ -24,7 +255,7 @@ The entry point is `src/main.js`. The name is fixed: the build turns it into `sc
 `src/main.js` is run from top to bottom, not imported: it starts the app by calling `main()` at the end and must not export anything. Imported modules can use standard exports.
 
 ```
-my-app/
+busybar-spotify/
 ├── src/                          the app
 │   ├── main.js                   the entry point: function main(), called at the end
 │   ├── appmeta/
@@ -38,9 +269,9 @@ my-app/
 ├── shared/                       app-level helpers, imported as @shared/*
 ```
 
-Both icons are optional; without them a default is used.
+Both icons are optional; without them a default is used. The current icons are based on the [official Spotify icon asset](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
 
-## Resources
+### Resources
 
 Anything in `src/` that isn't a source file is copied into the package, sorted by what the BUSY Bar can read:
 
@@ -57,13 +288,13 @@ A file in `src/images`, `src/animations` or `src/sounds` keeps its folder as lon
 
 Everything the app draws goes through the layout helpers in `@busy-app/busy-lib`: build a tree out of `row` / `column` / `stack`, hand it to `render()`, and send the result with `device.DisplayDraw()`. The screen is 72×16 pixels.
 
-## Input
+### Input
 
 `listen("input", handler)` delivers the device keys: `ok`, `start` and `back` with a `press` / `release` / `short` / `long` / `repeat` action, and `encoder` with a `delta` of `1` or `-1`. It returns an unbind function.
 
 Use `short` as the default action for a button press: it fires once, after a normal press and release. `press` fires immediately on key down and is followed by `short`, so handling `press` as a tap can react twice. Use `long` and `repeat` for hold gestures.
 
-## Commands
+### Commands
 
 | Command | Description |
 | --- | --- |
@@ -88,7 +319,7 @@ npm run app:install -- --addr <host>
 npm run app:install -- --addr <host> --password <password>
 ```
 
-## Build output
+### Build output
 
 The package folder is named after the app id:
 
@@ -102,11 +333,11 @@ dist/
 
 By default the build packs that folder into `dist/app.blooraayy.busybar-spotify.tgz`, with the folder itself at the root of the archive, and removes the folder; `--emit dir` keeps only the folder, `--emit both` keeps both. `--tgz-name` gives the archive another name; `{id}` and `{version}` in it are replaced with the manifest values.
 
-## Releasing
+### Releasing
 
 Pushing a git tag matching the manifest `version` (e.g. `0.1.0`) builds the app and attaches `app.blooraayy.busybar-spotify-<version>.tgz` to a GitHub release. The release notes open with the app's name, id, version and API version. The release fails when the tag differs from the manifest `version`.
 
-## Manifest
+### Manifest
 
 `src/appmeta/manifest.json` carries the app's identity and a couple of knobs (see the [apps documentation](https://github.com/busy-app/busybar-firmware/blob/dev/documentation/JavaScript%20Applications.dox.md)):
 
@@ -121,13 +352,13 @@ Pushing a git tag matching the manifest `version` (e.g. `0.1.0`) builds the app 
 | `heap_size_kib` | memory for the app heap, 1–512, default 128 |
 | `debug` | when true, shown only in developer mode, default false |
 
-Raise `heap_size_kib` if the app runs out of memory.
+Keep the default 128 KiB heap unless measurements show more is necessary; reduce allocations first.
 
-## Node version
+### Node version
 
 The app builds on Node 24 — the version in `.nvmrc` and the range `engines` allows. Node 26 breaks the build and is excluded. With `fnm` or `nvm` installed, `fnm use` / `nvm use` picks the right one up from `.nvmrc`.
 
-## Settings
+### Settings implementation
 
 To give the app a settings screen, add `src/appmeta/settings.json` describing the fields, then read the stored values:
 
@@ -139,7 +370,7 @@ const values = await loadValues();
 
 `loadValues()` returns `null` when nothing is stored yet — use the defaults.
 
-## JavaScript development on Windows
+### JavaScript development on Windows
 
 Use `npm.cmd` in PowerShell if the execution policy blocks `npm.ps1`:
 
@@ -162,272 +393,3 @@ and `tools/patch-busy-cli.mjs` applies an idempotent fix after install and befor
 build. This changes only the local build tool, not firmware. Review/remove the
 workaround when upgrading the CLI. Commit `package-lock.json`; do not commit
 `node_modules/` or `dist/`.
-
-## Spotify on Windows (no Premium required)
-
-Use the Spotify desktop application on Windows 10/11. The companion reads its
-Windows media session; it does not call the Spotify API or require credentials.
-Browser playback is not supported because Windows identifies that session by
-browser, which cannot reliably distinguish Spotify from other sites.
-
-1. Run `npm.cmd run companion` on the PC and keep that terminal open.
-2. Connect the BUSY Bar and PC to the same local network. USB alone does not give
-   the on-device JavaScript app access to a server on the PC.
-3. Build and install with `npm.cmd run build` and `npm.cmd run app:install`.
-4. In the device's app settings, set **Bridge URL** to the LAN URL printed by the
-   companion, for example `http://192.168.1.10:8765/now-playing`.
-5. Run `npm.cmd run app:run` and play music in Spotify. Restart the device app
-   after changing its settings. Updates normally arrive within approximately 0.5-1.5 seconds.
-
-If Windows asks, allow Node.js through the firewall on your private network.
-The bridge serves song title, artist, thumbnail and playback state without authentication
-on port 8765 to reachable network clients. Use it only on a trusted local network;
-do not forward that port to the Internet. Stop it with Ctrl+C. No metadata is
-saved to disk. `BUSYBAR_SPOTIFY_PORT` can override the listening port.
-
-The JavaScript companion uses a small PowerShell adapter for the Windows-only
-WinRT media API. It runs with a hidden window and a process-local execution-policy
-override; it does not change the machine execution policy or install packages.
-
-The device keeps one change subscription open, checks Wi-Fi before reconnecting,
-and backs off to at most 60 seconds after connection errors. It sends only
-changed display elements. Long titles scroll using firmware rendering, without
-per-frame HTTP calls. Accents are transliterated for the ASCII bitmap fonts;
-other unsupported characters become spaces. Paused playback shows `Paused`;
-no desktop Spotify session shows `No music`.
-
-Run `npm.cmd test` for subscriptions, controls, error handling and cleanup checks.
-
-If Spotify is open but the bridge returns `idle`, enable **Show desktop overlay
-when using media keys** in Spotify Settings > Display, then pause/resume playback.
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/read-media.ps1 -ListSessions`
-shows which media applications Windows exposes, for diagnostics.
-
-## Start the bridge automatically with Windows
-
-Run `npm.cmd run companion:autostart` once to register the **BUSY Bar Spotify
-Bridge** task for your Windows user. It starts when you sign in, uses your
-interactive media session, and runs without a console window. It runs with normal
-user permissions, allows only one scheduled instance, and retries up to three
-times on failure. Keep this checkout and the Node installation in their current
-locations; rerun the installer after moving either one.
-
-To start it immediately, use `Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"`
-in PowerShell. Stop any manually started companion first to free port 8765.
-After installing autostart you do not need to run `npm.cmd run companion`.
-
-Use `Get-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"` to inspect it and
-`npm.cmd run companion:autostart:remove` to stop and remove automatic startup.
-The task stores no Spotify credentials. Signing out stops the user session;
-the next sign-in starts the bridge again.
-
-## Album cover
-
-The left 16x16 pixels show the Windows media thumbnail; title and artist scroll
-in the remaining 54 pixels, separated by a 2-pixel gap. Windows crops and resizes
-the image on the PC, and the JavaScript companion converts it to at most 32 colors.
-The device receives less than 1 KiB of XPM2, never the original image. Only the
-current thumbnail is cached, in memory; unchanged covers are not redrawn. Missing
-artwork and offline states clear the cover while keeping the metadata usable.
-
-`companion/thumbnail.cs` is a small Windows COM/image-decoding adapter loaded by
-PowerShell. The device app and the bridge server remain JavaScript. No additional
-packages, Spotify API credentials, or Premium subscription are needed.
-
-To restart the hidden bridge after updating companion files:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File companion/stop.ps1
-Start-ScheduledTask -TaskName "BUSY Bar Spotify Bridge"
-```
-
-The stop command terminates only this checkout's bridge and its media-reader
-child process, avoiding orphaned listeners on port 8765.
-
-## Play / pause
-
-A short press of the BUSY Bar **Start** button pauses or resumes the Spotify
-Windows media session. The companion exposes `POST /playback/toggle` for this;
-commands require `X-Busybar-Control: 1` and browser-origin requests are rejected.
-It uses Windows `TryTogglePlayPauseAsync`, not Spotify's Premium Web API. Spotify
-must be open and its Windows media integration enabled. The bridge is intended
-for a trusted LAN; reachable local clients can control playback through it.
-
-Only one toggle can be pending; repeated presses while it is running are ignored.
-A command is never retried automatically, to avoid accidentally toggling twice.
-Windows events update metadata after a command. A short Back press
-cancels queued commands and the change subscription; an already-sent command may still complete.
-
-## Next track
-
-A short press of the encoder's **OK** button requests the next Spotify track via
-`POST /playback/next` and Windows `TrySkipNextAsync`. Turning the wheel or holding
-OK does not skip tracks. Next and play/pause share one pending command slot;
-presses during an active command are ignored and failed skips are not retried.
-The Windows media reader wakes on media/session events for the new title and cover.
-
-## Volume wheel
-
-Turn the encoder clockwise to raise the Spotify audio-session volume and
-counterclockwise to lower it, with the per-detent increment configured in **Apps > Spotify > Volume step (%)**
-in the BUSY Bar web interface. The default is 5 percentage points; the range is
-1-100. Save and restart the app on the BUSY Bar to apply the setting. This adjusts only Spotify in the Windows per-app mixer; other applications,
-the system master volume and the BUSY Bar speaker volume are unchanged. It does
-not move Spotify's internal playback slider.
-
-The first turn is sent immediately. Continued turns are combined and sent at most once every 100 ms, with at most 10 pending steps
-(the percentage change depends on the configured step). Volume, next-track and play/pause requests run serially.
-Display updates are independent of these control requests. Opposite turns cancel; errors are not retried and Back discards pending changes.
-`POST /playback/volume?steps=<n>` uses the same control header and origin checks
-as playback controls. The PC-only `volume.cs` / `volume.ps1` adapter uses Windows
-Core Audio to select sessions owned by Spotify.exe and clamps their volume to 0�100%; it does not alter the mute switch.
-
-The bridge keeps the volume adapter running and compiles it once at startup, avoiding PowerShell startup on every turn. Restart the bridge after editing volume.cs or volume.ps1. The worker blocks while idle and never launches Spotify.
-
-If no Spotify audio session is available, volume commands fail without changing
-any other application or falling back to the system master volume.
-
-## Volume indicator
-
-The app reads the initial Spotify volume with a zero-step control request. Each
-wheel step immediately updates a local preview using the configured percentage,
-without waiting for the PC response or the control throttle. Replies from older
-turns cannot rewind this preview. Once the latest command is confirmed, the
-indicator reconciles to Spotify's actual level. If control fails, the preview is
-hidden and its baseline is discarded rather than presenting an unconfirmed level.
-
-The indicator uses persistent canvas widgets: a black background, a gradient
-rectangle, the percentage, two arrows and a speaker icon. The first draw creates
-six stable ids. Normal wheel updates send only the changed fill width and value;
-the speaker and arrow states change only when entering or leaving 0/100. Borders
-are explicitly disabled. A zero level uses a one-pixel black fill because the
-API does not accept zero-width rectangles. The widget ids are cleared together
-when the popup disappears after 1.5 seconds.
-
-Only one display request is in flight. Pending previews coalesce to the latest
-value, and track changes wait behind the popup. Unlike native Settings, drawing
-still goes through the supported local HTTP canvas API; JavaScript cannot call
-the internal LVGL slider directly. The normal font is declared under src so the
-build scanner includes it. The default JavaScript heap remains 128 KiB.
-
-The previous full-image implementation and its packaged images are retained as
-reference resources; the active indicator does not load a full image per turn.
-`node tools/generate-volume-images.mjs` regenerates those reference images.
-
-Changing **Volume step (%)** changes both playback adjustments and the immediate
-preview. Restart the device app after saving the setting. The device keeps its
-default 128 KiB heap.
-
-Design reference: the firmware's read-only
-[sound settings slider](https://github.com/busy-app/busybar-firmware/blob/dev/applications/settings/sound_settings/widgets/slider_view.c).
-The speaker shapes are adapted from its
-[sound settings assets](https://github.com/busy-app/busybar-firmware/tree/dev/assets/images/external/sound_settings).
-
-Volume-only commands reuse the displayed track instead of fetching its metadata
-again. Connected Wi-Fi status is cached for at most 15 seconds between subscription renewals.
-
-The indicator is deliberately a single bitmap. During USB-monitored testing,
-the multi-element implementation reproduced device reboots while commands alone
-and the native Sound settings were stable. A larger JavaScript heap did not help.
-Moving the indicator rendering to the PC avoided the reboots in the repeated test;
-no firmware files were modified. The exact firmware failure was not established.
-
-## App icon
-
-`src/appmeta/icon_front_8x8.png` is the green Spotify icon for the front app menu;
-`icon_back_11x11.png` is the grayscale version for the back display. Both are
-packaged app metadata, with no runtime downloads. They use a pixel-aligned adaptation with opaque dark waves for legibility at
-these sizes, based on the [official Spotify icon asset](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
-
-## Playback changes and subscriptions
-
-The PC listens to Windows WinRT `SessionsChanged`, `CurrentSessionChanged`,
-`MediaPropertiesChanged` and `PlaybackInfoChanged` events. `media-events.cs`
-bridges their registration-token API, which PowerShell cannot subscribe to
-with `Register-ObjectEvent`. Notifications are coalesced by an AutoResetEvent;
-a 15-second health check recovers missed events and session changes.
-
-The device uses long polling: one `GET /now-playing` with `X-Busybar-Wait: 1`,
-`X-Busybar-Client` and `If-None-Match` waits until the metadata revision changes.
-The bridge responds immediately to changes. Quiet requests renew after three
-seconds with an empty HTTP 304, below the inactivity timeout observed on API
-27.14.0. Renewals do not parse or redraw unchanged artwork. Legacy bridges fall
-back to a two-second poll. Network failures back off from 10 to 60 seconds.
-
-Controls have their own serialized request chain and remain usable while the
-subscription waits. A separate display queue coalesces metadata/volume changes
-and allows only one display operation at a time. The bridge holds at most four
-waiting clients; disconnects, cancellation and shutdown clear their timers.
-
-Back cancels the waiting request through `POST /playback/cancel-wait`, clears
-all app timers, releases the input listener after its callback and lets already
-sent requests settle. The cancellation route uses the same control header and
-browser-origin restrictions as playback commands. Launch identifiers contain
-no credentials; a bounded cancellation cache covers request-arrival races.
-
-Title and artist are published before thumbnail decoding. Changes normally
-arrive on the next Windows event plus network/display processing, rather than
-waiting for a fixed refresh interval. No hard latency guarantee is made for
-Spotify/Windows or a disconnected network.
-
-## Multiple PC addresses
-
-Save up to three full PC URLs in Bridge URL 1, Bridge URL 2 and Bridge URL 3, for example http://192.168.1.200:8765/now-playing. Choose Bridge 1, Bridge 2 or Bridge 3 in the Active bridge dropdown, then restart the device app. Only the chosen address is used; connection failures retry that same PC with 2-30 seconds backoff and never switch to another saved address. An empty or invalid selected slot shows Set PC URL. Existing settings default to Bridge 1; saved URLs are preserved (settings version 1).
-
-## Bridge connection recovery
-
-The event subscription waits at most 1.5 seconds before returning an empty 304,
-leaving headroom for Wi-Fi latency below firmware's inactivity timeout. It still
-wakes immediately when metadata changes; the device keeps only one watch pending.
-After a failed request, retries back off through 2, 4, 8, 16 and 30 seconds.
-A single timeout preserves the last confirmed song instead of clearing its cover.
-If a later attempt still fails at least 15 seconds after the last successful
-response, the app shows PC offline. A confirmed Wi-Fi disconnection shows No Wi-Fi
-and uses a 30-second retry. Recovery redraws current metadata without relaunching.
-Bridge timeouts force a Wi-Fi status recheck but do not themselves mark Wi-Fi down.
-
-
-## Track progress
-
-The progress indicator occupies one row, y=15. Only the elapsed portion
-is visible, growing from left to right with a green gradient and pale playhead;
-there is no visible border or unplayed rail. Its 52-pixel range is x=19..70,
-with a black backing at x=18..71. The title uses small at y=-1 and the artist
-tiny at y=8. Native ink measured with Agjpqy occupies title rows 1..7 and artist
-rows 9..13, including descenders. Row 8 separates title/artist; row 14 separates
-artist/progress. These native sizes fit both explicit one-pixel gaps. The cover stays at x=0, y=0, 16x16. Windows SMTC supplies position, start/end and LastUpdatedTime. The
-PC subscribes to TimelinePropertiesChanged and retains only the current anchor.
-Normal timeline ticks do not wake the device; state/duration changes and seeks
-of at least 1.5 seconds do. Metadata snapshots include current position_ms and
-duration_ms, adjusted on the PC so device/PC clock differences do not matter.
-
-The device estimates elapsed playback locally between updates and schedules only
-the next visible pixel boundary (at least one second apart), not per-frame polling.
-Paused/finished tracks have no progress timer. The three stable progress element ids
-are serialized with all display updates; volume takes priority. Missing duration,
-idle/error states or confirmed disconnection remove the line. A transient bridge
-failure freezes it until recovery. Back clears the timer. The default 128 KiB
-heap and the existing firmware API version remain unchanged.
-
-
-The fill and playhead are both one pixel high and update together only at
-visible pixel boundaries. Styling adds no polling or animation timer. At zero
-progress all pixels are black, and all progress ids are cleared together when
-timing becomes unavailable.
-
-
-## Synchronized native text scrolling
-
-When both the title (small) and artist (tiny) exceed their 54-pixel viewports,
-scroll-sync.js computes their native circular traversal times from textWidth,
-including firmware 1.3.1's three-space gap. Both retain 1200 pixels/minute and
-a 1500 ms starting delay. Each repeat pause is 2500 ms plus the difference from
-the longer traversal, so both start each subsequent traversal together. The
-shorter line waits at its starting position until the longer one completes.
-
-On title/artist changes, the synchronized pair is cleared and recreated in one
-serialized draw to discard old LVGL animation phases. Artwork-only changes and
-progress updates do not reset scrolling. If either row fits, the normal pauses
-remain. Animation stays in the firmware: no per-frame requests, scroll timers,
-font downloads or firmware modifications are introduced. Recheck the native
-path formula if the firmware's circular-scroll behavior or fonts change.

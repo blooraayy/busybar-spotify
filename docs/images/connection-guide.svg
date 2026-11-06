@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc"><title id="title">Two parts, one local network</title><desc id="desc">Spotify desktop and the companion run on Windows. The BUSY Bar connects to the companion over the local network. USB is used to install the device app.</desc><style>text{font-family:Segoe UI,Arial,sans-serif;fill:#e8edf4}.title{font-size:24px;font-weight:700}.label{font-size:17px;font-weight:600}.small{font-size:14px;fill:#b3c0d1}.mono{font-family:Consolas,monospace;font-size:16px}.green{fill:#1ed760}</style><rect width="960" height="420" rx="20" fill="#101820"/>
+<text x="36" y="47" class="title">Two parts, one local network</text>
+<rect x="36" y="76" width="350" height="234" rx="16" fill="#1b2837" stroke="#39516a"/>
+<text x="60" y="110" class="label">1. Windows PC</text>
+<rect x="60" y="130" width="302" height="54" rx="9" fill="#103c2b"/>
+<text x="80" y="163" class="label">Spotify desktop</text>
+<path d="M211 190v25m-6-6 6 6 6-6" fill="none" stroke="#1ed760" stroke-width="2"/>
+<text x="231" y="208" class="small">Windows media events</text>
+<rect x="60" y="226" width="302" height="59" rx="9" fill="#25384b"/>
+<text x="80" y="250" class="label">PC companion</text>
+<text x="80" y="273" class="small">npm.cmd run companion</text>
+<rect x="615" y="76" width="309" height="234" rx="16" fill="#1b2837" stroke="#39516a"/>
+<text x="639" y="110" class="label">2. BUSY Bar</text>
+<rect x="639" y="139" width="261" height="82" rx="13" fill="#060a0e" stroke="#58697b"/>
+<text x="662" y="174" class="green label">Spotify app</text>
+<text x="662" y="201" class="small">Cover / title / artist / progress</text>
+<text x="639" y="254" class="small">Save the PC URL in app settings</text>
+<text x="639" y="278" class="small">Keep the bar connected to Wi-Fi</text>
+<text x="500" y="141" text-anchor="middle" class="label">Local network</text>
+<path d="M400 177h199m-8-6 8 6-8 6" fill="none" stroke="#1ed760" stroke-width="3"/>
+<text x="500" y="166" text-anchor="middle" class="small">Track updates</text>
+<path d="M599 232H400m8-6-8 6 8 6" fill="none" stroke="#99b8db" stroke-width="3"/>
+<text x="500" y="258" text-anchor="middle" class="small">Playback + volume</text>
+<rect x="36" y="332" width="888" height="64" rx="12" fill="#25384b"/>
+<text x="58" y="359" class="label">USB: installation and updates</text>
+<text x="58" y="382" class="small">The companion still needs the shared network. Windows autostart launches only the bridge.</text>
+</svg>

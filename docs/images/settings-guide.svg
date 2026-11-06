@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="554" viewBox="0 0 960 554" role="img" aria-labelledby="title desc"><title id="title">Which URL goes in the settings?</title><desc id="desc">Illustrated configuration example, not a screenshot. Copy the PC LAN address with port and now-playing path into Bridge URL 1. Choose Bridge 1, save and restart the device app.</desc><style>text{font-family:Segoe UI,Arial,sans-serif;fill:#e8edf4}.title{font-size:24px;font-weight:700}.label{font-size:17px;font-weight:600}.small{font-size:14px;fill:#b3c0d1}.mono{font-family:Consolas,monospace;font-size:16px}.green{fill:#1ed760}</style><rect width="960" height="554" rx="20" fill="#101820"/>
+<text x="36" y="47" class="title">Which URL goes in the settings?</text>
+<text x="36" y="75" class="small">Illustrated example — use the LAN address printed by your own companion.</text>
+<rect x="36" y="99" width="888" height="108" rx="12" fill="#060a0e" stroke="#39516a"/>
+<text x="59" y="127" class="small">PC companion URL</text>
+<text x="59" y="165" class="mono"><tspan fill="#b3c0d1">http://</tspan><tspan fill="#1ed760">192.168.1.10</tspan><tspan fill="#ffd580">:8765</tspan><tspan fill="#9bc8ff">/now-playing</tspan></text>
+<text x="59" y="190" class="small">PC address + listening port + endpoint — copy the entire URL</text>
+<path d="M480 216v25m-7-7 7 7 7-7" stroke="#1ed760" stroke-width="3" fill="none"/>
+<rect x="36" y="252" width="888" height="210" rx="12" fill="#1b2837" stroke="#39516a"/>
+<text x="59" y="285" class="label">BUSY Bar web interface → Apps → Spotify</text>
+<text x="59" y="329" class="small">Bridge URL 1</text>
+<rect x="269" y="302" width="630" height="39" rx="6" fill="#060a0e"/>
+<text x="284" y="327" class="mono">http://192.168.1.10:8765/now-playing</text>
+<text x="59" y="377" class="small">Active bridge</text>
+<text x="284" y="377" class="label">Bridge 1</text>
+<text x="59" y="421" class="small">Volume step (%)</text>
+<text x="284" y="421" class="label">5</text>
+<text x="337" y="421" class="small">percentage points per wheel detent</text>
+<text x="36" y="500" class="label green">Save settings → restart Spotify on the BUSY Bar</text>
+<text x="36" y="529" class="small">Use the PC address, not localhost or the BUSY Bar address. Other bridge slots are optional.</text>
+</svg>
