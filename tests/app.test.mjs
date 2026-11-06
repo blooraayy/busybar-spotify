@@ -1,3 +1,5 @@
+import {scrollSync,SCROLL_RATE,SCROLL_START} from '../src/scroll-sync.js';
+import {registerFontMaps} from '../node_modules/@busy-app/busy-lib/dist/Utils/font/index.js';
 import {playbackProgress, progressPixels, PROGRESS_WIDTH} from '../shared/progress.js';
 import {progressElements,PROGRESS_IDS} from '../src/progress-display.js';
 import { volumeFrame } from '../companion/volume-frame.mjs';
@@ -6,6 +8,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { bridgeUrl, selectedBridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
+for(const name of ['small','tiny'])registerFontMaps(JSON.parse(readFileSync(new URL('../node_modules/@busy-app/busy-lib/dist/Utils/font/maps/'+name+'.json',import.meta.url))));
 const volumeSource = readFileSync(new URL('../src/volume-display.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
 const volumeContext = { row: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value], stack: (_, children) => children };
 vm.runInNewContext(volumeSource + '\nglobalThis.volumeTools = { volumeElements, localVolumeElements, sliderElements, VOLUME_IDS };', volumeContext);
@@ -19,7 +22,7 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  const response=(data=track,status=200,tag=`"${revision}"`)=>({ok:status>=200&&status<300,status,headers:{get:name=>name==='ETag'?tag:name==='X-Busybar-Events'?'1':null},json:async()=>data});
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
- const context={...volumeContext.volumeTools, manifest:{id:'app.test'},playbackProgress,progressPixels,PROGRESS_WIDTH,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
+ const context={...volumeContext.volumeTools, manifest:{id:'app.test'},scrollSync,SCROLL_RATE,SCROLL_START,playbackProgress,progressPixels,PROGRESS_WIDTH,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
   volumeFrame, Date:class extends Date {static now(){return now;}},
   loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep,...addresses}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
@@ -315,5 +318,23 @@ test('native text layout reserves exactly one blank row after descenders',async(
  const progress=elements.findLast(e=>e.id==='progress-bg');
  assert.equal(progress.y-(artist.y+ink[artist.font].bottom)-1,1);
  assert.ok(title.y+ink[title.font].top>=0);
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+
+test('two scrolling rows restart together when only one metadata row changes',async()=>{
+ const app=launch();await flush();await app.advance(100);
+ const title='A'.repeat(35), artist='B'.repeat(25);
+ app.push({state:'playing',title,artist});await flush();
+ let frame=app.frames.at(-1);assert.equal(frame.length,2);
+ assert.equal(frame[0].scroll_start_delay,frame[1].scroll_start_delay);
+ const previous=app.clears.length;await app.advance(100);
+ app.push({state:'playing',title:'C'.repeat(40),artist});await flush();
+ assert.ok(app.clears.slice(previous).some(ids=>ids.includes('title')&&ids.includes('status')));
+ frame=app.frames.at(-1);assert.deepEqual([...frame.map(e=>e.id)],['title','status']);
+ assert.equal(frame[1].text,artist);assert.equal(frame[0].scroll_rate,frame[1].scroll_rate);
+ const count=app.frames.length,clears=app.clears.length;
+ await app.advance(100);app.push({state:'playing',title:'C'.repeat(40),artist});await flush();
+ assert.equal(app.frames.length,count);assert.equal(app.clears.length,clears);
  app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });

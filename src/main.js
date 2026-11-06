@@ -5,6 +5,7 @@ import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
 import { playbackProgress, progressPixels, PROGRESS_WIDTH } from "@shared/progress";
 import { progressElements, PROGRESS_IDS } from "./progress-display";
+import { scrollSync, SCROLL_RATE, SCROLL_START } from "./scroll-sync";
 import manifest from "./appmeta/manifest.json";
 
 const APP = manifest.id;
@@ -37,6 +38,7 @@ function main() {
   let lastTitle = "";
   let lastArtist = "";
   let lastCover = "";
+  let lastTitleDelay = -1, lastArtistDelay = -1;
   let shownVolume = -1;
   let visualVolume = -1;
   let wheelRevision = 0;
@@ -161,9 +163,17 @@ function main() {
       lastCover = "";
       if (stopped) return;
     }
+    const sync = scrollSync(title, artist);
+    // LVGL keeps an existing label's animation phase when its text is updated.
+    // Recreate just this pair on metadata changes to give both the same start.
+    if (sync.both && (title !== lastTitle || artist !== lastArtist) && (lastTitle || lastArtist)) {
+      await device.DisplayClear({ application_name: APP, element_ids: ["title", "status"] });
+      lastTitle = ""; lastArtist = "";
+      if (stopped) return;
+    }
     const text = column({ width: 54, align: "start" }, [
-      { type: "text", id: "title", text: title, font: "small", color: "#FFFFFFFF", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
-      { type: "text", id: "status", text: artist, font: "tiny", color: "#FFFFFFB0", width: 54, scroll_rate: 1200, scroll_start_delay: 1500, scroll_repeat_delay: 2500 },
+      { type: "text", id: "title", text: title, font: "small", color: "#FFFFFFFF", width: 54, scroll_rate: SCROLL_RATE, scroll_start_delay: SCROLL_START, scroll_repeat_delay: sync.titleDelay },
+      { type: "text", id: "status", text: artist, font: "tiny", color: "#FFFFFFB0", width: 54, scroll_rate: SCROLL_RATE, scroll_start_delay: SCROLL_START, scroll_repeat_delay: sync.artistDelay },
     ]);
     const elements = render(row({ gap: 2, align: "start" }, cover ? [
       { type: "xpmbitmap", id: "cover", data: cover, width: 16, height: 16 }, text,
@@ -176,11 +186,13 @@ function main() {
       element.y = element.id === "title" ? -1 : 8;
       if (element.id === "cover") element.y = 0;
     }
-    const changed = elements.filter((element) => element.id === "cover" ? cover !== lastCover : element.id === "title" ? title !== lastTitle : artist !== lastArtist);
+    const changed = elements.filter((element) => element.id === "cover" ? cover !== lastCover : element.id === "title"
+      ? title !== lastTitle || sync.titleDelay !== lastTitleDelay : artist !== lastArtist || sync.artistDelay !== lastArtistDelay);
     if (changed.length) await device.DisplayDraw({ application_name: APP, priority: 50, elements: changed });
     lastTitle = title;
     lastArtist = artist;
     lastCover = cover;
+    lastTitleDelay = sync.titleDelay; lastArtistDelay = sync.artistDelay;
   }
 
 
