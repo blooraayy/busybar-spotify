@@ -152,3 +152,20 @@ notifications. On the bar, progress uses one timeout for the next visible pixel
 boundary (minimum one second), only while playing with a known duration. Use the
 shared display queue, pause drawing under volume and clear the timer on Back.
 Never add per-second network polling for progress. Unknown duration hides it.
+
+## Device addresses
+
+The user selects one of two PCs with bridge_selection. bridge_url and
+bridge_url_2 hold their addresses. The app attempts the selected address on any
+connected network and does not match an SSID. Keep settings version 1 so the
+firmware preserves existing values.
+
+Target changes reset ETags, progress, queued controls and volume previews.
+Ignore late control replies from older routes. Keep the Wi-Fi connectivity check
+for offline status, but do not compare SSIDs or suppress requests because the
+network name changed.
+
+The PC UI configures two named PCs and their URLs. Validate unique names and the
+selected PC URL. Preserve volume and unrelated settings. Do not infer a PC
+address from a subnet or store Wi-Fi passwords. Configuration and firmware
+networking are separate concerns.

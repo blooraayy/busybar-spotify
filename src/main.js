@@ -1,6 +1,6 @@
 import { device } from "@shared/device";
 import { loadValues } from "@shared/settings";
-import { selectedBridgeUrl, playbackLines, playbackCover } from "@shared/now-playing";
+import { selectedBridgeUrl, hasBridgeNetworks, playbackLines, playbackCover } from "@shared/now-playing";
 import { row, column, render } from "@busy-app/busy-lib";
 import { sliderElements, VOLUME_IDS } from "./volume-display";
 import { playbackProgress, progressPixels, PROGRESS_WIDTH } from "@shared/progress";
@@ -15,6 +15,9 @@ const VOLUME_UPDATE_MS = 100;
 function main() {
   let stopped = false;
   let url = "";
+  /** @type {Record<string, unknown> | null} */
+  let settings = null;
+  let routeGeneration = 0;
   let bridgeReady = false;
   const client = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   let watchTimer = 0;
@@ -59,6 +62,18 @@ function main() {
     if (!wifiRequest) wifiRequest = device.WifiStatusGet().then(value => {
       wifiConnected = value.state === "connected";
       wifiCheckedAt = Date.now();
+      if (hasBridgeNetworks(settings)) {
+        const target = selectedBridgeUrl(settings);
+        if (target !== url) {
+          url = target; routeGeneration++;
+          bridgeReady = false; lastEtag = ""; lastWatchAt = -1; retryDelay = 2000;
+          pendingCommand = ""; pendingVolume = 0; visualVolume = -1; wheelRevision++;
+          pendingIndicator = null; hideVolume = true;
+          clearTimeout(controlTimer); controlTimer = 0; clearTimeout(volumeTimer);
+          setProgress(null);
+          queueTrack("Spotify", wifiConnected ? (url ? "Connecting" : "Set bridge") : "No Wi-Fi");
+        }
+      }
       return wifiConnected;
     }).finally(() => { wifiRequest = null; });
     return wifiRequest;
@@ -209,6 +224,12 @@ function main() {
         return;
       }
       if (stopped) return;
+      if (!url) {
+        bridgeReady = false; setProgress(null); lastEtag = "";
+        nextDelay = 15000;
+        queueTrack("Spotify", "Set bridge");
+        return;
+      }
       const headers = { "X-Busybar-Client": client, "X-Busybar-Wait": "1", "If-None-Match": lastEtag };
       const response = await fetch(url, { headers });
       if (stopped) return;
@@ -273,6 +294,7 @@ function main() {
     if (!command) return;
     const sentRevision = wheelRevision;
     const controlUrl = url;
+    const controlGeneration = routeGeneration;
     if (pendingCommand) pendingCommand = ""; else { pendingVolume = 0; lastVolumeAt = Date.now(); }
     controlling = true;
     try {
@@ -280,11 +302,11 @@ function main() {
         method: "POST", headers: { "X-Busybar-Control": "1" },
       });
       if (stopped) return;
-      if (url !== controlUrl || !bridgeReady) return;
+      if (url !== controlUrl || controlGeneration !== routeGeneration || !bridgeReady) return;
       if (!response.ok) throw new Error("Spotify control failed");
       if (command.indexOf("volume?steps=") === 0) {
         const result = await response.json();
-        if (stopped) return;
+        if (stopped || controlGeneration !== routeGeneration || !bridgeReady) return;
         if (!Number.isInteger(result.volume) || result.volume < 0 || result.volume > 100) throw new Error("Invalid volume response");
         // A reply for an older turn must never rewind immediate wheel feedback.
         if (sentRevision === wheelRevision) {
@@ -300,7 +322,7 @@ function main() {
         }
       }
     } catch (error) {
-      if (!stopped) {
+      if (!stopped && controlGeneration === routeGeneration) {
         report(`control: ${error instanceof Error ? error.message : String(error)}`); pendingVolume = 0; visualVolume = -1;
         pendingIndicator = null; hideVolume = true; kickDisplay();
       }
@@ -348,10 +370,11 @@ function main() {
   async function start() {
     const values = await loadValues();
     if (stopped) return;
+    settings = values;
     url = selectedBridgeUrl(values);
     const step = values?.volume_step;
     if (typeof step === "number" && Number.isInteger(step) && step >= 1 && step <= 100) volumeStep = step;
-    if (!url) { queueTrack("Spotify", "Set PC URL"); return; }
+    if (!url && !hasBridgeNetworks(values)) { queueTrack("Spotify", "Set PC URL"); return; }
     await watch();
     if (!stopped && wifiConnected && !controlling && !pendingVolume && visualVolume < 0) {
       // Read the initial Spotify level without changing it or showing the popup.

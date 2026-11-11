@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-import { bridgeUrl, selectedBridgeUrl, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
+import { bridgeUrl, selectedBridgeUrl, hasBridgeNetworks, playbackLines, playbackCover, displayText } from '../shared/now-playing.js';
 for(const name of ['small','tiny'])registerFontMaps(JSON.parse(readFileSync(new URL('../node_modules/@busy-app/busy-lib/dist/Utils/font/maps/'+name+'.json',import.meta.url))));
 const volumeSource = readFileSync(new URL('../src/volume-display.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
 const volumeContext = { row: (_, children) => children, render: value => Array.isArray(value) ? value.flat(Infinity) : [value], stack: (_, children) => children };
@@ -22,11 +22,11 @@ function launch({ wifi='connected', configured=true, volumeStep=5, fail=false, f
  const response=(data=track,status=200,tag=`"${revision}"`)=>({ok:status>=200&&status<300,status,headers:{get:name=>name==='ETag'?tag:name==='X-Busybar-Events'?'1':null},json:async()=>data});
  function push(data) {track=data;revision++;if(pendingWatch){const resolve=pendingWatch;pendingWatch=null;resolve(response());}}
  async function display(work) {inDisplay++;maxDisplay=Math.max(maxDisplay,inDisplay);work();if(holdDraw){holdDraw=false;await new Promise(resolve=>drawFinish=resolve);}inDisplay--;}
- const context={...volumeContext.volumeTools, manifest:{id:'app.test'},scrollSync,SCROLL_RATE,SCROLL_START,playbackProgress,progressPixels,PROGRESS_WIDTH,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,playbackLines,playbackCover,
+ const context={...volumeContext.volumeTools, manifest:{id:'app.test'},scrollSync,SCROLL_RATE,SCROLL_START,playbackProgress,progressPixels,PROGRESS_WIDTH,progressElements,PROGRESS_IDS,bridgeUrl,selectedBridgeUrl,hasBridgeNetworks,playbackLines,playbackCover,
   volumeFrame, Date:class extends Date {static now(){return now;}},
   loadValues:async()=>({bridge_url:configured?'http://192.168.1.10:8765/now-playing':'',volume_step:volumeStep,...addresses}),
   row:(_,children)=>children,column:(_,children)=>children,render:value=>Array.isArray(value)?value.flat(Infinity):[value],
-  device:{WifiStatusGet:async()=>({state:wifi}),DisplayDraw:async frame=>display(()=>frames.push(frame.elements)),DisplayClear:async frame=>display(()=>clears.push(frame.element_ids))},
+  device:{WifiStatusGet:async()=>({state:wifi,ssid:'ignored'}),DisplayDraw:async frame=>display(()=>frames.push(frame.elements)),DisplayClear:async frame=>display(()=>clears.push(frame.element_ids))},
   fetch:async(url,options)=>{
    if(options?.method==='POST') {
     if(url.endsWith('/cancel-wait')){cancellations.push(url);if(pendingWatch){pendingWatch(response({},204));pendingWatch=null;}return response({},204);}
@@ -224,10 +224,10 @@ test('native slider reuses its widgets and only sends changed properties',()=>{
 });
 
 
-test('manual selection defaults to legacy address and never substitutes another slot',()=>{
+test('manual selection chooses one of two PCs regardless of Wi-Fi name',()=>{
  assert.equal(selectedBridgeUrl({bridge_url:'http://pc1:8765/now-playing'}),'http://pc1:8765/now-playing');
  assert.equal(selectedBridgeUrl({bridge_selection:'2',bridge_url:'http://pc1:8765/now-playing',bridge_url_2:'http://pc2:8765/now-playing'}),'http://pc2:8765/now-playing');
- assert.equal(selectedBridgeUrl({bridge_selection:'3',bridge_url_3:'http://pc3:8765/now-playing'}),'http://pc3:8765/now-playing');
+ assert.equal(selectedBridgeUrl({bridge_selection:'3',bridge_url_3:'http://pc3:8765/now-playing'}),'');
  for(const selection of ['2','3','bad'])assert.equal(selectedBridgeUrl({bridge_selection:selection,bridge_url:'http://pc1:8765/now-playing'}),'');
  assert.equal(selectedBridgeUrl(null),'');
 });
@@ -336,5 +336,17 @@ test('two scrolling rows restart together when only one metadata row changes',as
  const count=app.frames.length,clears=app.clears.length;
  await app.advance(100);app.push({state:'playing',title:'C'.repeat(40),artist});await flush();
  assert.equal(app.frames.length,count);assert.equal(app.clears.length,clears);
+ app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
+});
+
+const mappedAddresses={
+ bridge_selection:'2',bridge_url:'http://pc1:8765/now-playing',
+ bridge_url_2:'http://pc2:8765/now-playing',
+};
+test('Wi-Fi name changes do not block the selected PC bridge',async()=>{
+ const app=launch({addresses:mappedAddresses});await flush();await app.advance(100);
+ assert.ok(app.requests.every(r=>r.url.includes('pc2')));
+ const count=app.requests.length;
+ assert.ok(count>0);
  app.input({key:'back',action:'short'});await app.advance(0);assert.equal(app.timers.size,0);
 });
