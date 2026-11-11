@@ -1,10 +1,17 @@
 /** @param {Record<string, unknown> | null | undefined} values */
-export function selectedBridgeUrl(values) {
-  const selection = values?.bridge_selection ?? "1";
-  const key = selection === "1" ? "bridge_url" : selection === "2" ? "bridge_url_2" : selection === "3" ? "bridge_url_3" : "";
-  return key ? bridgeUrl(values?.[key]) : "";
+export function hasBridgeNetworks(values) {
+  return selectedBridgeUrl(values) !== "";
 }
 
+/** Select the configured PC without matching or checking an SSID.
+ * @param {Record<string, unknown> | null | undefined} values
+ */
+export function selectedBridgeUrl(values) {
+  const selection = values?.bridge_selection ?? "1";
+  if (selection !== "1" && selection !== "2") return "";
+  const key = selection === "1" ? "bridge_url" : "bridge_url_2";
+  return bridgeUrl(values?.[key]);
+}
 /** @param {unknown} value */
 export function bridgeUrl(value) {
   if (typeof value !== "string" || value.length > 200) return "";

@@ -128,18 +128,73 @@ The wheel changes **Spotify's Windows per-app audio-session volume**. It does no
 
 ## Settings
 
-Change these in **Apps → Spotify** in the BUSY Bar web interface. Save, then restart the device app; no code edits or rebuild are needed.
+Configure the app in Apps → Spotify in the BUSY Bar web interface, or use the
+PC companion to save the configuration and install the app.
 
 | Setting | Purpose | Default |
 | --- | --- | --- |
-| Bridge URL 1 | Full companion URL for the first PC | Empty |
-| Bridge URL 2 / 3 | Optional saved URLs for other PCs | Empty |
-| Active bridge | Select which one of the three saved URLs to use | Bridge 1 |
-| Volume step (%) | Percentage points changed per wheel detent, from 1 to 100 | 5 |
+| Bridge URL 1 / 2 | Address for each of the two PCs | Empty |
+| Active bridge | Select which PC to use | Bridge 1 |
+| Volume step (%) | Percentage points per wheel detent | 5 |
 
-Only the selected bridge is contacted. There is **no automatic switching** to another saved PC when it goes offline. An empty or invalid selected URL shows `Set PC URL`.
-
+The selected PC is the only one contacted. The app tries that address on any
+connected network; the BUSY Bar and selected PC still need network reachability.
+The app does not switch PCs automatically.
 The bridge listens on port **8765** by default. `BUSYBAR_SPOTIFY_PORT` overrides it; if changed, also update the saved URL. It exposes current metadata and playback controls without authentication to reachable LAN clients. Use a trusted local network and do not forward this port to the Internet. Spotify credentials are never required, and metadata is not saved to disk.
+
+### Two bridge PCs
+
+The Active bridge selector chooses one of two PCs. Enter each PC's address and
+select the one the BUSY Bar should contact. The app does not check or match a
+Wi-Fi name. The bar and selected PC must still be able to reach each other.
+
+Example addresses:
+
+| Bridge | Computer address |
+| --- | --- |
+| Desktop | http://192.168.1.40:8765/now-playing |
+| Laptop | http://192.168.1.50:8765/now-playing |
+#### Configure from the PC
+
+1. Connect the bar by USB and run the companion. Open
+   `http://localhost:8765/settings`, or double-click **Configurar BUSY Bar.cmd**.
+   On another Windows PC, copy/clone this project and install Node.js 24 first.
+   The launcher installs missing dependencies (Internet required the first time).
+2. Give each PC a distinct name and address. Bare addresses use port 8765 and
+   the now-playing endpoint automatically.
+3. Select the active device and press **Aplicar a BUSY Bar**. The companion checks
+   and builds an isolated copy, installs via USB, saves/verifies both addresses
+   and starts the app. Your names appear in the native selector. Volume settings
+   are preserved. Build/install progress and errors appear on the page.
+4. Ensure the bar and the selected PC can communicate on their network. The app
+   tries the selected address directly and uses bounded retry backoff.
+
+The native settings contain two PC addresses and the active bridge. The companion
+preserves volume settings and restarts the app after installing the updated
+configuration.
+
+#### Network and limitations
+
+- The app does not match a Wi-Fi name. It tries the selected PC address on any
+  network where the bar has connectivity.
+- The app does not discover new DHCP addresses. If a router changes a PC's IP,
+  update its address or reserve the IP on the router. Firewall rules,
+  hotspot/client isolation and routing still affect reachability.
+
+Bridge names and both addresses travel with the bar. The page reads names from its
+installed schema and addresses from its settings. Additive fields retain settings
+version 1 to avoid resets. Personal addresses are not written into source defaults.
+
+Configuration routes are loopback-only and writes require a same-origin token.
+There is no cloud administration service. The companion must run on each PC to
+read that PC's Spotify. No firmware modifications or Bluetooth support are added.
+
+`.busybar-config/` is ignored by Git. It holds temporary builds, a backup
+(`previous-settings.json`) and the last successfully applied settings. Only one
+deployment runs at a time; reopening the page reconnects to its status. Failed
+builds do not install anything. Failures after install are reported separately and
+can be retried with USB connected. Successful applies also write name labels into
+this checkout's schema for subsequent builds.
 
 ## Updating an existing installation
 
